@@ -4,9 +4,10 @@ import { PeopleManager, type PersonRow } from '@/components/settings/PeopleManag
 import { RecurrenceList } from '@/components/settings/RecurrenceList';
 import { SettingsLinks, type SettingsLink } from '@/components/settings/SettingsLinks';
 import { NotificationSettings } from '@/components/settings/NotificationSettings';
+import { ChangePinCard } from '@/components/settings/ChangePinCard';
 import { InstallCard } from '@/components/settings/InstallCard';
 import { currentUser } from '@/lib/auth/session';
-import { listActiveUsers } from '@/lib/users';
+import { listActiveUsers, toPersonSummary } from '@/lib/users';
 import { listRecurrences } from '@/lib/recurrences';
 import { outstandingSupplyCount } from '@/lib/supplies';
 
@@ -66,6 +67,10 @@ export default async function SettingsPage() {
         </div>
 
         <div className="mt-7">
+          <ChangePinCard />
+        </div>
+
+        <div className="mt-7">
           <NotificationSettings />
         </div>
 
@@ -74,7 +79,11 @@ export default async function SettingsPage() {
         </div>
 
         <div className="mt-7">
-          <RecurrenceList rules={listRecurrences()} />
+          <RecurrenceList
+            rules={listRecurrences()}
+            people={listActiveUsers().map(toPersonSummary)}
+            viewerId={user.id}
+          />
         </div>
 
         {user.isAdmin ? (

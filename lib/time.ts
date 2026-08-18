@@ -139,3 +139,8 @@ export function formatShort(ts: number): string {
 export function formatFull(ts: number): string {
   return fullDateTime.format(new Date(ts));
 }
+
+/** "YYYY-MM-DDTHH:MM" in shop time, for a datetime-local input. */
+export function toLocalInputValue(ts: number): string {
+  return `${localDateString(ts)}T${localClockString(ts)}`;
+}

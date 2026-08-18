@@ -4,13 +4,16 @@ import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/ui/Button';
+import { TaskEditor } from '@/components/board/TaskEditor';
 import { useSheetDrag } from '@/components/board/useSheetDrag';
 import { cardActions, dueDisplay, type CardAction } from '@/components/board/task-display';
-import type { BoardTask } from '@/lib/board-types';
+import type { BoardTask, NewTaskInput } from '@/lib/board-types';
+import type { PersonSummary } from '@/lib/auth/results';
 import { formatFull } from '@/lib/time';
 
 export interface TaskSheetProps {
   task: BoardTask;
+  people: PersonSummary[];
   viewerId: number;
   viewerIsAdmin: boolean;
   busy: boolean;
@@ -19,6 +22,7 @@ export interface TaskSheetProps {
   onAction: (action: CardAction, task: BoardTask) => void;
   onDecline: (task: BoardTask, reason: string) => void;
   onCancel: (task: BoardTask) => void;
+  onUpdate: (task: BoardTask, input: NewTaskInput) => void;
 }
 
 const ACTION_LABEL: Record<CardAction, string> = {
@@ -31,6 +35,7 @@ const ACTION_LABEL: Record<CardAction, string> = {
 
 export function TaskSheet({
   task,
+  people,
   viewerId,
   viewerIsAdmin,
   busy,
@@ -39,18 +44,21 @@ export function TaskSheet({
   onAction,
   onDecline,
   onCancel,
+  onUpdate,
 }: TaskSheetProps) {
   const { y, scrimOpacity, sheetRef, handleProps, dismiss } = useSheetDrag(onClose);
   const [decliningOpen, setDecliningOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [reason, setReason] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const due = dueDisplay(task, now);
   const actions = cardActions(task, viewerId);
-  const canCancel =
-    (task.createdBy === viewerId || viewerIsAdmin) &&
-    (task.status === 'pending' || task.status === 'accepted');
+  const isOpen = task.status === 'pending' || task.status === 'accepted';
+  // Same bar as cancelling: retitling someone's work is the same kind of act.
+  const canEdit = (task.createdBy === viewerId || viewerIsAdmin) && isOpen;
+  const canCancel = canEdit;
 
   useEffect(() => {
     panelRef.current?.focus();
@@ -171,7 +179,21 @@ export function TaskSheet({
             </Detail>
           </dl>
 
-          {decliningOpen ? (
+          {editing ? (
+            <div className="mt-5">
+              <TaskEditor
+                task={task}
+                people={people}
+                viewerId={viewerId}
+                busy={busy}
+                onCancel={() => setEditing(false)}
+                onSave={(input) => {
+                  setEditing(false);
+                  onUpdate(task, input);
+                }}
+              />
+            </div>
+          ) : decliningOpen ? (
             <div className="mt-5">
               <label htmlFor="decline-reason" className="type-callout block text-[var(--text-secondary)]">
                 Why are you passing? Optional — it goes back up for grabs either way.
@@ -210,6 +232,12 @@ export function TaskSheet({
                   {ACTION_LABEL[action]}
                 </Button>
               ))}
+
+              {canEdit ? (
+                <Button tone="secondary" size="md" fullWidth disabled={busy} onPress={() => setEditing(true)}>
+                  Edit this task
+                </Button>
+              ) : null}
 
               {canCancel ? (
                 <Button

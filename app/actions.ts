@@ -32,6 +32,14 @@ export async function createTaskAction(input: NewTaskInput): Promise<TaskActionR
   return settle(result);
 }
 
+export async function updateTaskAction(
+  taskId: number,
+  input: NewTaskInput,
+): Promise<TaskActionResult> {
+  const me = await requireUser();
+  return settle(machine.updateTask(me, taskId, input));
+}
+
 export async function acceptTaskAction(taskId: number): Promise<TaskActionResult> {
   const me = await requireUser();
   return settle(machine.acceptTask(me, taskId));

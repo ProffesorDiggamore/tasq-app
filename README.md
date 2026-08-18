@@ -30,12 +30,13 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `npm run dev` | Development server on 4744 |
 | `npm run build` / `npm start` | Production build and server |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run verify` | All five suites below — 201 checks |
+| `npm run verify` | All six suites below — 257 checks |
 | `npm run verify:auth` | PIN hashing, throttle, and shop-time checks |
 | `npm run verify:tasks` | The task status machine, claim race, and board rows |
 | `npm run verify:scheduler` | Recurrence patterns, idempotency, and catch-up |
 | `npm run verify:notify` | Who gets told what, supplies, and History filters |
 | `npm run verify:push` | VAPID signing, encryption, and dead-subscription pruning |
+| `npm run verify:editing` | Changing your own PIN, editing tasks and repeat rules |
 | `npm run db:generate` | Generate a migration from `lib/db/schema.ts` |
 
 ## How sign-in works
@@ -58,6 +59,11 @@ Alyssa. There is no signup.
    ceremony, for the shared shop Mac and the iPads.
 7. An admin can reset someone's PIN from Settings, which clears the hash (next
    tap re-enrols) and lifts any lockout.
+8. Anyone can change **their own** PIN from Settings without an admin. That is a
+   different operation from a reset: it requires the current PIN first, and it
+   is throttled the same way as the login screen — a signed-in session is not a
+   licence to brute-force four digits, because a phone left unlocked on a bench
+   is exactly the case that protects against.
 
 ## The task status machine
 
@@ -86,6 +92,19 @@ The claim race in particular is settled by a single
 `UPDATE ... WHERE assigned_to IS NULL AND status = 'pending'`. SQLite serialises
 the writes, so exactly one caller reports a changed row.
 `npm run verify:tasks` fires ten claims at one task and asserts a single winner.
+
+## Editing
+
+- **Tasks** can be edited by their creator or an admin — the same bar as
+  cancelling, since retitling someone's work is the same kind of act. Reassigning
+  deliberately drops the task back to `pending`: the new owner has not agreed to
+  anything, and inheriting someone else's acceptance would make the board claim
+  a person took work they have never seen. Turning ASAP on notifies everyone
+  once; later edits do not re-alert.
+- **Repeat rules** are editable in Settings — title, details, who it goes to,
+  ASAP, pattern, days, and time of day. Copies already on the board keep what
+  they say; only the next one changes. Rules can be paused or deleted, and a
+  delete is soft, so the tasks it already spawned stay intact.
 
 ## The board
 

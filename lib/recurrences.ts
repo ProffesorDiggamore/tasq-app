@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, asc, eq, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, or } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { recurrences, tasks, users, type Recurrence, type User } from '@/lib/db/schema';
 import { logActivity } from '@/lib/activity';
@@ -85,6 +85,7 @@ export function spawnDueRecurrences(now: number = Date.now()): SpawnReport {
     .where(
       and(
         eq(recurrences.active, true),
+        isNull(recurrences.archivedAt),
         or(isNull(recurrences.lastSpawnedOn), ne(recurrences.lastSpawnedOn, today)),
       ),
     )
@@ -239,6 +240,130 @@ export function createRecurrence(
   return { ...ok, recurrenceId: created.id };
 }
 
+/**
+ * Edit a rule in place. The instances it already spawned are left alone — they
+ * are somebody's work in progress, and silently retitling a task on the board
+ * because a schedule changed would be worse than leaving it.
+ */
+export function updateRecurrence(
+  actor: User,
+  recurrenceId: number,
+  input: RecurrenceInput,
+  now: number = Date.now(),
+): ActionResult {
+  const existing = db
+    .select()
+    .from(recurrences)
+    .where(and(eq(recurrences.id, recurrenceId), isNull(recurrences.archivedAt)))
+    .get();
+  if (!existing) return fail('That repeating task is gone.');
+
+  const problem = validateRecurrence(input);
+  if (problem) return fail(problem);
+
+  if (input.defaultAssignee !== null) {
+    const person = db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, input.defaultAssignee), isNull(users.archivedAt)))
+      .get();
+    if (!person) return fail('That person is no longer on the board.');
+  }
+
+  const title = cleanText(input.title, TITLE_MAX);
+  const nextSchedule = describeSchedule(
+    input.pattern,
+    input.weekdays,
+    input.dayOfMonth,
+    input.spawnTime,
+  );
+  const wasSchedule = describeSchedule(
+    existing.pattern,
+    parseWeekdays(existing.weekdays),
+    existing.dayOfMonth,
+    existing.spawnTime,
+  );
+
+  db.update(recurrences)
+    .set({
+      title,
+      notes: cleanText(input.notes, NOTES_MAX) || null,
+      defaultAssignee: input.defaultAssignee,
+      isAsap: input.isAsap,
+      pattern: input.pattern,
+      weekdays: input.pattern === 'weekly' ? [...input.weekdays].sort().join(',') : null,
+      dayOfMonth: input.pattern === 'monthly' ? input.dayOfMonth : null,
+      spawnTime: input.spawnTime,
+    })
+    .where(eq(recurrences.id, recurrenceId))
+    .run();
+
+  // Say what actually changed, so History is worth reading.
+  const changes: string[] = [];
+  if (title !== existing.title) changes.push(`renamed it from "${existing.title}"`);
+  if (nextSchedule !== wasSchedule) changes.push(`moved it to ${nextSchedule}`);
+  if (input.defaultAssignee !== existing.defaultAssignee) {
+    changes.push(
+      input.defaultAssignee === null
+        ? 'put it up for grabs'
+        : `gave it to ${nameOf(input.defaultAssignee)}`,
+    );
+  }
+  if (input.isAsap !== existing.isAsap) {
+    changes.push(input.isAsap ? 'marked it ASAP' : 'took ASAP off it');
+  }
+
+  logActivity(
+    {
+      actorId: actor.id,
+      verb: 'recurrence.updated',
+      subjectType: 'recurrence',
+      subjectId: recurrenceId,
+      summary:
+        changes.length > 0
+          ? `${actor.name} edited the repeating task "${title}" — ${changes.join(', ')}`
+          : `${actor.name} edited the repeating task "${title}"`,
+    },
+    now,
+  );
+
+  return ok;
+}
+
+/**
+ * Soft delete. The rule leaves the list and stops spawning; the tasks it already
+ * created keep pointing at it, so nothing on the board or in History breaks.
+ */
+export function deleteRecurrence(
+  actor: User,
+  recurrenceId: number,
+  now: number = Date.now(),
+): ActionResult {
+  const existing = db
+    .select()
+    .from(recurrences)
+    .where(and(eq(recurrences.id, recurrenceId), isNull(recurrences.archivedAt)))
+    .get();
+  if (!existing) return fail('That repeating task is gone.');
+
+  db.update(recurrences)
+    .set({ archivedAt: now, active: false })
+    .where(eq(recurrences.id, recurrenceId))
+    .run();
+
+  logActivity(
+    {
+      actorId: actor.id,
+      verb: 'recurrence.deleted',
+      subjectType: 'recurrence',
+      subjectId: recurrenceId,
+      summary: `${actor.name} deleted the repeating task "${existing.title}"`,
+    },
+    now,
+  );
+  return ok;
+}
+
 export function setRecurrenceActive(
   actor: User,
   recurrenceId: number,
@@ -310,6 +435,7 @@ export function listRecurrences(): RecurrenceSummary[] {
       id: recurrences.id,
       title: recurrences.title,
       pattern: recurrences.pattern,
+      notes: recurrences.notes,
       weekdays: recurrences.weekdays,
       dayOfMonth: recurrences.dayOfMonth,
       spawnTime: recurrences.spawnTime,
@@ -321,6 +447,7 @@ export function listRecurrences(): RecurrenceSummary[] {
     })
     .from(recurrences)
     .leftJoin(users, eq(users.id, recurrences.defaultAssignee))
+    .where(isNull(recurrences.archivedAt))
     .orderBy(asc(recurrences.title))
     .all()
     .map((r) => ({

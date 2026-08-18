@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { users, loginThrottle } from '@/lib/db/schema';
-import { requireAdmin } from '@/lib/auth/session';
+import { requireAdmin, requireUser } from '@/lib/auth/session';
+import { changeOwnPin } from '@/lib/change-pin';
 import { logActivity } from '@/lib/activity';
 import { fail, ok, type ActionResult } from '@/lib/action-result';
 
@@ -149,4 +150,16 @@ export async function resetPinAction(userId: number): Promise<ActionResult> {
   });
   revalidatePath('/settings');
   return ok;
+}
+
+/** Your own PIN, from inside your own account. Needs the current one. */
+export async function changeOwnPinAction(
+  currentPin: string,
+  newPin: string,
+  confirmPin: string,
+): Promise<ActionResult> {
+  const me = await requireUser();
+  const result = await changeOwnPin(me, currentPin, newPin, confirmPin);
+  if (result.ok) revalidatePath('/settings');
+  return result;
 }

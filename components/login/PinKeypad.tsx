@@ -53,8 +53,14 @@ export function PinKeypad({
   // person sees their last digit land before the screen does anything else.
   // (Deliberately not requestAnimationFrame: a backgrounded tab never fires it,
   // which would leave a completed PIN sitting there doing nothing.)
+  //
+  // The buffer is cleared in the same pass. Without that, a parent that advances
+  // to another step re-runs this effect with the *same* four digits still in the
+  // buffer — one entry would submit twice, and a two-step flow would take the
+  // first entry as its own confirmation without the person typing it again.
   useEffect(() => {
     if (buffer.length !== PIN_LENGTH) return;
+    setBuffer('');
     onComplete(buffer);
   }, [buffer, onComplete]);
 

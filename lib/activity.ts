@@ -21,8 +21,12 @@ export type ActivityVerb =
   | 'user.archived'
   | 'auth.failed'
   | 'recurrence.created'
+  | 'recurrence.updated'
+  | 'recurrence.deleted'
   | 'recurrence.paused'
-  | 'recurrence.resumed';
+  | 'recurrence.resumed'
+  | 'task.updated'
+  | 'user.pin_changed';
 
 export type SubjectType = 'task' | 'supply_request' | 'user' | 'recurrence';
 

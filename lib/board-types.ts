@@ -72,6 +72,7 @@ export interface RecurrenceInput {
 export interface RecurrenceSummary {
   id: number;
   title: string;
+  notes: string | null;
   pattern: RecurrencePatternInput;
   weekdays: string | null;
   dayOfMonth: number | null;

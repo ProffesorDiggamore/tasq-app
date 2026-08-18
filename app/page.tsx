@@ -3,6 +3,7 @@ import { AppHeader } from '@/components/AppHeader';
 import { Board } from '@/components/board/Board';
 import { currentUser } from '@/lib/auth/session';
 import { loadBoard } from '@/lib/tasks';
+import { listActiveUsers, toPersonSummary } from '@/lib/users';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,7 @@ export default async function BoardPage({
       />
       <Board
         board={board}
+        people={listActiveUsers().map(toPersonSummary)}
         viewer={{ id: user.id, name: user.name, isAdmin: user.isAdmin }}
         serverNow={now}
         initialTaskId={initialTaskId}

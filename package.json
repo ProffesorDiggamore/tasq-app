@@ -9,12 +9,13 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "verify": "npm run verify:auth && npm run verify:tasks && npm run verify:scheduler && npm run verify:notify && npm run verify:push",
+    "verify": "npm run verify:auth && npm run verify:tasks && npm run verify:scheduler && npm run verify:notify && npm run verify:push && npm run verify:editing",
     "verify:auth": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-auth.mts",
     "verify:tasks": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-tasks.mts",
     "verify:scheduler": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-scheduler.mts",
     "verify:notify": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-notify.mts",
-    "verify:push": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-push.mts"
+    "verify:push": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-push.mts",
+    "verify:editing": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-editing.mts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

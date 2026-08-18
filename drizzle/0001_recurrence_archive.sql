@@ -1,0 +1,1 @@
+ALTER TABLE `recurrences` ADD `archived_at` integer;

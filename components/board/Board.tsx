@@ -18,8 +18,15 @@ import {
   completeTaskAction,
   declineTaskAction,
   reopenTaskAction,
+  updateTaskAction,
 } from '@/app/actions';
-import type { BoardData, BoardTask, TaskActionResult } from '@/lib/board-types';
+import type {
+  BoardData,
+  BoardTask,
+  NewTaskInput,
+  TaskActionResult,
+} from '@/lib/board-types';
+import type { PersonSummary } from '@/lib/auth/results';
 import { haptic } from '@/lib/haptics';
 
 /** How often a board left open on the shop wall pulls fresh state. */
@@ -35,11 +42,13 @@ export interface Viewer {
 
 export function Board({
   board,
+  people,
   viewer,
   serverNow,
   initialTaskId = null,
 }: {
   board: BoardData;
+  people: PersonSummary[];
   viewer: Viewer;
   serverNow: number;
   /** Set when a notification deep-linked straight to a task. */
@@ -153,6 +162,13 @@ export function Board({
     (task: BoardTask, reason: string) => {
       handle(task.id, () => declineTaskAction(task.id, reason), 'Back up for grabs.');
       setOpenTaskId(null);
+    },
+    [handle],
+  );
+
+  const onUpdateTask = useCallback(
+    (task: BoardTask, input: NewTaskInput) => {
+      handle(task.id, () => updateTaskAction(task.id, input), 'Saved.');
     },
     [handle],
   );
@@ -285,6 +301,7 @@ export function Board({
           <TaskSheet
             key={openTask.id}
             task={openTask}
+            people={people}
             viewerId={viewer.id}
             viewerIsAdmin={viewer.isAdmin}
             busy={busyTaskId === openTask.id}
@@ -293,6 +310,7 @@ export function Board({
             onAction={onAction}
             onDecline={onDecline}
             onCancel={onCancelTask}
+            onUpdate={onUpdateTask}
           />
         ) : null}
       </AnimatePresence>

@@ -147,6 +147,137 @@ export function createTask(
   return { ok: true, taskId: created.id, notify };
 }
 
+/**
+ * Edit a task after it exists. Restricted to the creator or an admin — the same
+ * bar as cancelling, since retitling someone's work is the same kind of act.
+ *
+ * Reassigning deliberately drops the task back to `pending`: the new owner has
+ * not agreed to anything yet, and inheriting someone else's acceptance would
+ * mean the board claims a person took work they have never seen.
+ */
+export function updateTask(
+  actor: User,
+  taskId: number,
+  input: NewTaskInput,
+  now: number = Date.now(),
+): MachineResult {
+  const existing = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  if (!existing) return { ok: false, reason: 'gone' };
+  if (existing.createdBy !== actor.id && !actor.isAdmin) {
+    return {
+      ok: false,
+      reason: 'invalid',
+      message: `Only ${nameOf(existing.createdBy)} or an admin can edit that.`,
+    };
+  }
+  if (existing.status === 'done' || existing.status === 'cancelled') {
+    return {
+      ok: false,
+      reason: 'stale',
+      message: `That task is already ${existing.status}. Put it back first.`,
+    };
+  }
+
+  const title = clean(input.title, TITLE_MAX);
+  if (title.length === 0) return { ok: false, reason: 'invalid', message: 'Give it a title.' };
+  const notes = clean(input.notes, NOTES_MAX) || null;
+
+  let assignedTo: number | null = null;
+  if (input.assignedTo !== null) {
+    const target = db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, input.assignedTo), isNull(users.archivedAt)))
+      .get();
+    if (!target) {
+      return { ok: false, reason: 'invalid', message: 'That person is no longer on the board.' };
+    }
+    assignedTo = target.id;
+  }
+
+  let dueAt: number | null = null;
+  if (input.dueLocal) {
+    const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(input.dueLocal);
+    if (!match) return { ok: false, reason: 'invalid', message: "That due time didn't parse." };
+    dueAt = localWallClockToUtc(match[1], match[2]);
+  }
+
+  const reassigned = assignedTo !== existing.assignedTo;
+  const status = reassigned ? 'pending' : existing.status;
+  // A due time pushed into the future earns a fresh nudge.
+  const overdueNotifiedAt = dueAt !== null && dueAt > now ? null : existing.overdueNotifiedAt;
+
+  const result = db
+    .update(tasks)
+    .set({
+      title,
+      notes,
+      assignedTo,
+      isAsap: input.isAsap,
+      dueAt,
+      status,
+      acceptedAt: reassigned ? null : existing.acceptedAt,
+      claimedAt: reassigned ? null : existing.claimedAt,
+      overdueNotifiedAt,
+      updatedAt: now,
+    })
+    // Guarded on the status we read, so an edit cannot land on top of someone
+    // else finishing or cancelling the task a moment earlier.
+    .where(and(eq(tasks.id, taskId), eq(tasks.status, existing.status)))
+    .run();
+  if (result.changes === 0) return explainMiss(taskId);
+
+  const changes: string[] = [];
+  if (title !== existing.title) changes.push(`renamed it from "${existing.title}"`);
+  if (reassigned) {
+    changes.push(assignedTo === null ? 'put it up for grabs' : `gave it to ${nameOf(assignedTo)}`);
+  }
+  if (input.isAsap !== existing.isAsap) {
+    changes.push(input.isAsap ? 'marked it ASAP' : 'took ASAP off it');
+  }
+  if (dueAt !== existing.dueAt) changes.push(dueAt === null ? 'cleared the due time' : 'changed the due time');
+
+  logActivity(
+    {
+      actorId: actor.id,
+      verb: 'task.updated',
+      subjectType: 'task',
+      subjectId: taskId,
+      summary:
+        changes.length > 0
+          ? `${actor.name} edited "${title}" — ${changes.join(', ')}`
+          : `${actor.name} edited "${title}"`,
+    },
+    now,
+  );
+
+  const notify: NotifyIntent[] = [];
+  const url = `/?task=${taskId}`;
+  if (reassigned && assignedTo !== null && assignedTo !== actor.id) {
+    notify.push({
+      audience: { kind: 'user', userId: assignedTo },
+      title: input.isAsap ? 'ASAP — for you' : `${actor.name} assigned you a task`,
+      body: title,
+      url,
+      tag: `task-${taskId}`,
+      urgent: input.isAsap,
+    });
+  }
+  // Only when it *becomes* ASAP — every later edit would otherwise re-alert everyone.
+  if (input.isAsap && !existing.isAsap) {
+    notify.push({
+      audience: { kind: 'everyone', except: actor.id },
+      title: 'ASAP',
+      body: title,
+      url,
+      tag: `task-${taskId}`,
+      urgent: true,
+    });
+  }
+
+  return { ok: true, notify };
+}
+
 export function acceptTask(actor: User, taskId: number, now: number = Date.now()): MachineResult {
   const result = db
     .update(tasks)

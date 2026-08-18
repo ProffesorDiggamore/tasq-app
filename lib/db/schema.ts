@@ -53,6 +53,9 @@ export const recurrences = sqliteTable(
     spawnTime: text('spawn_time').notNull().default('06:00'),
     active: integer('active', { mode: 'boolean' }).notNull().default(true),
     createdAt: integer('created_at').notNull(),
+    /** Soft delete. A removed rule stops spawning and leaves the list, but the
+        tasks it already spawned keep pointing at it. */
+    archivedAt: integer('archived_at'),
     /**
      * Local date string "YYYY-MM-DD" of the last spawn. This is the scheduler's
      * idempotency guard: spawning twice for the same recurrence on the same
