@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "verify": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-auth.mts"
+    "verify": "npm run verify:auth && npm run verify:tasks",
+    "verify:auth": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-auth.mts",
+    "verify:tasks": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-tasks.mts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

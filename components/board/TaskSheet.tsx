@@ -1,0 +1,304 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { motion } from 'motion/react';
+import { Avatar } from '@/components/Avatar';
+import { useSheetDrag } from '@/components/board/useSheetDrag';
+import { cardActions, dueDisplay, type CardAction } from '@/components/board/task-display';
+import type { BoardTask } from '@/lib/board-types';
+import { formatFull } from '@/lib/time';
+
+export interface TaskSheetProps {
+  task: BoardTask;
+  viewerId: number;
+  viewerIsAdmin: boolean;
+  busy: boolean;
+  now: number;
+  onClose: () => void;
+  onAction: (action: CardAction, task: BoardTask) => void;
+  onDecline: (task: BoardTask, reason: string) => void;
+  onCancel: (task: BoardTask) => void;
+}
+
+const ACTION_LABEL: Record<CardAction, string> = {
+  accept: 'Accept',
+  decline: 'Decline',
+  claim: 'Claim this',
+  complete: 'Mark done',
+  reopen: 'Put it back',
+};
+
+export function TaskSheet({
+  task,
+  viewerId,
+  viewerIsAdmin,
+  busy,
+  now,
+  onClose,
+  onAction,
+  onDecline,
+  onCancel,
+}: TaskSheetProps) {
+  const { y, scrimOpacity, sheetRef, handleProps, dismiss } = useSheetDrag(onClose);
+  const [decliningOpen, setDecliningOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const due = dueDisplay(task, now);
+  const actions = cardActions(task, viewerId);
+  const canCancel =
+    (task.createdBy === viewerId || viewerIsAdmin) &&
+    (task.status === 'pending' || task.status === 'accepted');
+
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <motion.div
+        // Dim to focus: this is a modal task, so the board goes back and down.
+        className="absolute inset-0"
+        style={{ background: 'var(--scrim)', opacity: scrimOpacity }}
+        onClick={() => dismiss()}
+        aria-hidden="true"
+      />
+
+      <motion.div
+        ref={(node) => {
+          sheetRef.current = node;
+          panelRef.current = node;
+        }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-sheet-title"
+        tabIndex={-1}
+        className="material-sheet relative w-full max-w-lg outline-none"
+        style={{
+          y,
+          borderRadius: 'var(--radius-sheet) var(--radius-sheet) 0 0',
+          maxHeight: '88dvh',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
+      >
+        {/* The grab area is the header only, so the body below can still scroll. */}
+        <div {...handleProps} className="cursor-grab px-5 pb-3 pt-2.5 active:cursor-grabbing">
+          <div
+            className="mx-auto h-1 w-9 rounded-full"
+            style={{ background: 'var(--text-tertiary)' }}
+            aria-hidden="true"
+          />
+
+          <div className="mt-3.5 flex items-start gap-2">
+            {task.isAsap ? (
+              <span
+                className="type-label mt-1 rounded-[var(--radius-pill)] px-2 py-1"
+                style={{ background: 'var(--asap)', color: 'var(--asap-ink)' }}
+              >
+                ASAP
+              </span>
+            ) : null}
+            <h2 id="task-sheet-title" className="type-title flex-1">
+              {task.title}
+            </h2>
+          </div>
+        </div>
+
+        <div className="max-h-[58dvh] overflow-y-auto px-5 pb-5">
+          {task.notes ? (
+            <p className="type-body whitespace-pre-wrap text-[var(--text-secondary)]">
+              {task.notes}
+            </p>
+          ) : null}
+
+          <dl className="mt-4 flex flex-col gap-2.5">
+            <Detail label="Status">
+              <StatusPill task={task} viewerId={viewerId} />
+            </Detail>
+
+            <Detail label={task.assignedTo === null ? 'Open to' : 'Assigned to'}>
+              {task.assignedTo === null ? (
+                <span className="type-callout">Anyone</span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Avatar name={task.assignedToName ?? '?'} userId={task.assignedTo} size={22} />
+                  <span className="type-callout">
+                    {task.assignedTo === viewerId ? 'You' : task.assignedToName}
+                  </span>
+                </span>
+              )}
+            </Detail>
+
+            <Detail label="Added by">
+              <span className="flex items-center gap-2">
+                <Avatar name={task.createdByName} userId={task.createdBy} size={22} />
+                <span className="type-callout">
+                  {task.createdBy === viewerId ? 'You' : task.createdByName}
+                </span>
+              </span>
+            </Detail>
+
+            {due ? (
+              <Detail label="Due">
+                <span
+                  className="type-callout tabular"
+                  style={{ color: due.overdue ? 'var(--danger)' : undefined }}
+                >
+                  {formatFull(task.dueAt!)}
+                  {due.overdue ? ' · overdue' : ''}
+                </span>
+              </Detail>
+            ) : null}
+
+            {task.completedAt ? (
+              <Detail label="Finished">
+                <span className="type-callout">
+                  {task.completedByName ?? 'Someone'} · {formatFull(task.completedAt)}
+                </span>
+              </Detail>
+            ) : null}
+
+            {task.declineReason ? (
+              <Detail label="Passed on because">
+                <span className="type-callout">{task.declineReason}</span>
+              </Detail>
+            ) : null}
+
+            <Detail label="Added">
+              <span className="type-callout">{formatFull(task.createdAt)}</span>
+            </Detail>
+          </dl>
+
+          {decliningOpen ? (
+            <div className="mt-5">
+              <label htmlFor="decline-reason" className="type-callout block text-[var(--text-secondary)]">
+                Why are you passing? Optional — it goes back up for grabs either way.
+              </label>
+              <input
+                id="decline-reason"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="On a delivery until 3"
+                autoComplete="off"
+                className="tap-target type-body mt-2 w-full rounded-[var(--radius-control)] px-3.5"
+                style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
+              />
+              <div className="mt-3 flex gap-2">
+                <SheetButton tone="quiet" disabled={busy} onPress={() => setDecliningOpen(false)}>
+                  Keep it
+                </SheetButton>
+                <SheetButton tone="danger" disabled={busy} onPress={() => onDecline(task, reason)}>
+                  Decline
+                </SheetButton>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 flex flex-col gap-2">
+              {actions.map((action) => (
+                <SheetButton
+                  key={action}
+                  tone={action === 'decline' ? 'danger' : action === 'reopen' ? 'quiet' : 'primary'}
+                  disabled={busy}
+                  onPress={() =>
+                    action === 'decline' ? setDecliningOpen(true) : onAction(action, task)
+                  }
+                >
+                  {ACTION_LABEL[action]}
+                </SheetButton>
+              ))}
+
+              {canCancel ? (
+                <SheetButton
+                  tone="quiet"
+                  disabled={busy}
+                  onPress={() => {
+                    if (confirmCancel) onCancel(task);
+                    else setConfirmCancel(true);
+                  }}
+                >
+                  {confirmCancel ? 'Tap again to cancel this task' : 'Cancel this task'}
+                </SheetButton>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function Detail({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3">
+      <dt className="type-caption w-28 shrink-0 text-[var(--text-tertiary)]">{label}</dt>
+      <dd className="min-w-0 flex-1">{children}</dd>
+    </div>
+  );
+}
+
+function StatusPill({ task, viewerId }: { task: BoardTask; viewerId: number }) {
+  const map: Record<string, { label: string; color: string }> = {
+    pending:
+      task.assignedTo === null
+        ? { label: 'Up for grabs', color: 'var(--accent)' }
+        : {
+            label: task.assignedTo === viewerId ? 'Waiting on you' : 'Waiting to be accepted',
+            color: 'var(--accent)',
+          },
+    accepted: { label: 'In progress', color: 'var(--accent)' },
+    done: { label: 'Done', color: 'var(--success)' },
+    declined: { label: 'Declined', color: 'var(--danger)' },
+    cancelled: { label: 'Cancelled', color: 'var(--text-tertiary)' },
+  };
+  const { label, color } = map[task.status];
+  return (
+    <span
+      className="type-caption rounded-[var(--radius-pill)] px-2.5 py-1"
+      style={{
+        background: `color-mix(in srgb, ${color} 18%, transparent)`,
+        color,
+        fontWeight: 600,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function SheetButton({
+  children,
+  tone,
+  disabled,
+  onPress,
+}: {
+  children: React.ReactNode;
+  tone: 'primary' | 'quiet' | 'danger';
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const styles: Record<typeof tone, React.CSSProperties> = {
+    primary: { background: 'var(--accent)', color: 'var(--accent-ink)', border: '1px solid transparent' },
+    quiet: {
+      background: 'var(--surface-strong)',
+      color: 'var(--text-secondary)',
+      border: '1px solid var(--hairline)',
+    },
+    danger: {
+      background: 'color-mix(in srgb, var(--danger) 16%, transparent)',
+      color: 'var(--danger)',
+      border: '1px solid color-mix(in srgb, var(--danger) 30%, transparent)',
+    },
+  };
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onPress}
+      className="pressable type-headline flex h-12 w-full items-center justify-center rounded-[var(--radius-control)] disabled:opacity-45"
+      style={styles[tone]}
+    >
+      {children}
+    </button>
+  );
+}

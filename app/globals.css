@@ -5,8 +5,8 @@
 
    Dark is the default because this gets read at 6am in a shop bay and on a wall
    screen; a light system setting flips it. Every colour is a token so the two
-   themes stay honest, and the accessibility media queries below only ever
-   redefine tokens, never layout.
+   themes stay honest, and the accessibility media queries at the bottom only
+   ever redefine tokens, never layout.
    ========================================================================== */
 
 :root {
@@ -51,6 +51,9 @@
 
   /* Minimum touch target. Used with greasy hands on a phone in a bay. */
   --tap: 44px;
+
+  /* Page gutter. Carousels bleed past it so a card can sit under the edge. */
+  --gutter: 1rem;
 
   color-scheme: dark;
 }
@@ -114,180 +117,192 @@
 
 /* ==========================================================================
    Base
+
+   Layered on purpose. Unlayered CSS outranks every Tailwind layer, so a bare
+   `button { padding: 0 }` out here would silently beat `px-4` on every button
+   in the app. Everything below sits in `base` or `components` so the utility
+   layer keeps the last word.
    ========================================================================== */
 
-* {
-  -webkit-tap-highlight-color: transparent;
-}
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
 
-html {
-  /* Spacing lives in rem so a larger system text size scales the layout with it
-     rather than bursting out of it. */
-  font: 100% / 1.5 var(--font-sans);
-  background: var(--ground);
-  /* Keeps the overscroll gutter the right colour on iOS when rubber-banding. */
-  overscroll-behavior-y: none;
-}
+  html {
+    /* Spacing lives in rem so a larger system text size scales the layout with
+       it rather than bursting out of it. */
+    font: 100% / 1.5 var(--font-sans);
+    background: var(--ground);
+    /* Keeps the overscroll gutter the right colour when rubber-banding. */
+    overscroll-behavior-y: none;
+  }
 
-body {
-  background: var(--ground);
-  color: var(--text);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  margin: 0;
-  min-height: 100dvh;
-  /* Home-screen PWA: keep content clear of the notch and the home indicator. */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
-}
+  body {
+    background: var(--ground);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    margin: 0;
+    min-height: 100dvh;
+    /* Home-screen PWA: keep content clear of the notch and the home indicator. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: inherit;
-}
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
 
-button {
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  touch-action: manipulation; /* removes the legacy ~300ms tap delay */
-  /* A slow tap with a gloved thumb must not start a text selection on a card. */
-  user-select: none;
-  -webkit-user-select: none;
-}
+  button {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    touch-action: manipulation; /* removes the legacy ~300ms tap delay */
+    /* A slow tap with a gloved thumb must not start a text selection on a card. */
+    user-select: none;
+    -webkit-user-select: none;
+  }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 6px;
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
 }
 
 /* ==========================================================================
    Typography — tracking and leading are size-specific, never one value for all
    ========================================================================== */
 
-.type-display {
-  font-size: clamp(1.75rem, 6vw, 2.5rem);
-  line-height: 1.05;
-  letter-spacing: -0.024em;
-  font-weight: 700;
-}
+@layer components {
+  .type-display {
+    font-size: clamp(1.75rem, 6vw, 2.5rem);
+    line-height: 1.05;
+    letter-spacing: -0.024em;
+    font-weight: 700;
+  }
 
-.type-title {
-  font-size: 1.3125rem;
-  line-height: 1.2;
-  letter-spacing: -0.016em;
-  font-weight: 650;
-}
+  .type-title {
+    font-size: 1.3125rem;
+    line-height: 1.2;
+    letter-spacing: -0.016em;
+    font-weight: 650;
+  }
 
-.type-headline {
-  font-size: 1.0625rem;
-  line-height: 1.3;
-  letter-spacing: -0.008em;
-  font-weight: 600;
-}
+  .type-headline {
+    font-size: 1.0625rem;
+    line-height: 1.3;
+    letter-spacing: -0.008em;
+    font-weight: 600;
+  }
 
-.type-body {
-  font-size: 1rem;
-  line-height: 1.45;
-  letter-spacing: 0;
-}
+  .type-body {
+    font-size: 1rem;
+    line-height: 1.45;
+    letter-spacing: 0;
+  }
 
-.type-callout {
-  font-size: 0.9375rem;
-  line-height: 1.4;
-  letter-spacing: 0.002em;
-}
+  .type-callout {
+    font-size: 0.9375rem;
+    line-height: 1.4;
+    letter-spacing: 0.002em;
+  }
 
-.type-caption {
-  font-size: 0.8125rem;
-  line-height: 1.35;
-  letter-spacing: 0.01em;
-}
+  .type-caption {
+    font-size: 0.8125rem;
+    line-height: 1.35;
+    letter-spacing: 0.01em;
+  }
 
-/* Row labels and other all-caps micro-type need real positive tracking. */
-.type-label {
-  font-size: 0.75rem;
-  line-height: 1.2;
-  letter-spacing: 0.07em;
-  font-weight: 620;
-  text-transform: uppercase;
-}
+  /* Row labels and other all-caps micro-type need real positive tracking. */
+  .type-label {
+    font-size: 0.75rem;
+    line-height: 1.2;
+    letter-spacing: 0.07em;
+    font-weight: 620;
+    text-transform: uppercase;
+  }
 
-.tabular {
-  font-variant-numeric: tabular-nums;
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ------------------------------------------------------------------------
+     Materials
+     ---------------------------------------------------------------------- */
+
+  .material-chrome {
+    background: var(--chrome);
+    /* Unprefixed only — Lightning CSS adds -webkit- from the build targets.
+       Writing both by hand made it collapse to the prefixed form alone. */
+    backdrop-filter: blur(var(--chrome-blur)) saturate(180%);
+  }
+
+  .material-card {
+    background: var(--surface);
+    backdrop-filter: blur(var(--card-blur)) saturate(140%);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--shadow-card);
+  }
+
+  .material-sheet {
+    background: var(--ground-raised);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--shadow-sheet);
+  }
+
+  /* A fade where scrolling content passes under floating chrome, not a 1px rule. */
+  .scroll-edge {
+    background: linear-gradient(to bottom, var(--ground) 0%, transparent 100%);
+    pointer-events: none;
+  }
+
+  /* ------------------------------------------------------------------------
+     Interaction primitives
+     ---------------------------------------------------------------------- */
+
+  /* Feedback lives on the press, not the release. Kept as a CSS transition on
+     purpose: this is a discrete state change, not a gesture-driven one. */
+  .pressable {
+    transition: transform 110ms cubic-bezier(0.2, 0, 0, 1),
+      background-color 110ms linear;
+    will-change: transform;
+  }
+
+  .pressable:active {
+    transform: scale(0.97);
+    background-color: var(--surface-pressed);
+  }
+
+  .tap-target {
+    min-height: var(--tap);
+    min-width: var(--tap);
+  }
+
+  /* Momentum scrolling with rubber-band at the ends, never a hard stop. */
+  .rail {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .rail::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* ==========================================================================
-   Materials
-   ========================================================================== */
+   Accessibility signals — three independent switches, honoured separately.
 
-.material-chrome {
-  background: var(--chrome);
-  backdrop-filter: blur(var(--chrome-blur)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--chrome-blur)) saturate(180%);
-}
-
-.material-card {
-  background: var(--surface);
-  backdrop-filter: blur(var(--card-blur)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--card-blur)) saturate(140%);
-  border: 1px solid var(--hairline);
-  box-shadow: var(--shadow-card);
-}
-
-.material-sheet {
-  background: var(--ground-raised);
-  border: 1px solid var(--hairline);
-  box-shadow: var(--shadow-sheet);
-}
-
-/* A fade where scrolling content passes under floating chrome — not a 1px rule. */
-.scroll-edge {
-  background: linear-gradient(to bottom, var(--ground) 0%, transparent 100%);
-  pointer-events: none;
-}
-
-/* ==========================================================================
-   Interaction primitives
-   ========================================================================== */
-
-/* Feedback lives on the press, not the release. Kept as a CSS transition on
-   purpose: this is a discrete state change, not a gesture-driven one. */
-.pressable {
-  transition: transform 110ms cubic-bezier(0.2, 0, 0, 1),
-    background-color 110ms linear;
-  will-change: transform;
-}
-
-.pressable:active {
-  transform: scale(0.97);
-  background-color: var(--surface-pressed);
-}
-
-.tap-target {
-  min-height: var(--tap);
-  min-width: var(--tap);
-}
-
-/* Momentum scrolling with rubber-band at the ends, never a hard stop. */
-.rail {
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.rail::-webkit-scrollbar {
-  display: none;
-}
-
-/* ==========================================================================
-   Accessibility signals — three independent switches, honoured separately
+   Deliberately unlayered: someone who asked for less motion or more contrast
+   must outrank any utility that happens to disagree.
    ========================================================================== */
 
 @media (prefers-reduced-motion: reduce) {
@@ -318,7 +333,6 @@ button {
   .material-chrome,
   .material-card {
     backdrop-filter: none;
-    -webkit-backdrop-filter: none;
   }
 }
 
@@ -335,7 +349,6 @@ button {
     border-width: 1px;
     border-color: var(--hairline);
     backdrop-filter: none;
-    -webkit-backdrop-filter: none;
   }
 }
 

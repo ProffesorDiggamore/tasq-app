@@ -30,7 +30,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `npm run dev` | Development server on 4744 |
 | `npm run build` / `npm start` | Production build and server |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run verify` | Auth, throttle, and shop-time checks against a throwaway database |
+| `npm run verify` | Both suites below |
+| `npm run verify:auth` | PIN hashing, throttle, and shop-time checks |
+| `npm run verify:tasks` | The task status machine, claim race, and board rows |
 | `npm run db:generate` | Generate a migration from `lib/db/schema.ts` |
 
 ## How sign-in works
@@ -54,6 +56,56 @@ Alyssa. There is no signup.
 7. An admin can reset someone's PIN from Settings, which clears the hash (next
    tap re-enrols) and lifts any lockout.
 
+## The task status machine
+
+Anyone can create a task for anyone, including for themselves and for the open
+pool. `lib/task-machine.ts` holds every transition; `app/actions.ts` only
+resolves who is asking and revalidates.
+
+- **Assigned on creation** → `pending`. That person **Accepts** (→ `accepted`)
+  or **Declines**, which clears the assignee, records the reason, and drops the
+  task back to `pending` in the open pool for someone else. Declining never
+  kills a task, so `declined` is not a resting state.
+- **Unassigned on creation** → `pending` with no assignee, in **Up for Grabs**.
+  The first **Claim** wins. Claiming *is* accepting, so it skips `pending`.
+- **Anyone can mark anything done.** No proof, no photo — the work is visible in
+  the shop, and an undone task stays on the board. `completed_by` records who
+  actually did it, separately from who owned it.
+- **Cancel** is a soft delete by the creator or an admin. Nothing is ever
+  removed from the file.
+
+Every transition is a conditional `UPDATE` guarded on the state it expects to
+find. Two people acting in the same second is normal on a shared board, so a
+transition that changes no rows works out why and answers with it — the person
+who lost a claim sees "Tony just grabbed this", not an error.
+
+The claim race in particular is settled by a single
+`UPDATE ... WHERE assigned_to IS NULL AND status = 'pending'`. SQLite serialises
+the writes, so exactly one caller reports a changed row.
+`npm run verify:tasks` fires ten claims at one task and asserts a single winner.
+
+## The board
+
+Five rows, each a horizontal carousel:
+
+1. **ASAP** — shared by everyone, warmer and wider, sorted by due time. The
+   first thing you see starting a shift.
+2. **Your tasks** — yours, with anything awaiting an Accept at the front.
+3. **Up for grabs** — the open pool, one tap to claim.
+4. **Today's recurring** — instances spawned since the board last cleared.
+5. **Done today** — collapsed by default, with an undo on every card.
+
+A task legitimately appears in more than one row (an ASAP task assigned to you
+is in both ASAP and Your Tasks); the rows are views, not buckets.
+
+Completed tasks age off the board at **3am shop time** — that is a query
+boundary, not a deletion, so History keeps them forever. Badge counts on ASAP
+and Your Tasks are rendered in-app so they still work for anyone who declines
+notifications.
+
+The board polls every 30 seconds while the tab is visible and refreshes the
+moment it comes back, so a screen left open in the shop stays current.
+
 ## Layout
 
 ```
@@ -61,6 +113,8 @@ app/            routes and server actions
 components/     UI, all client components under a route-owned folder
 lib/db/         Drizzle schema, connection, migrator + seed
 lib/auth/       PIN hashing, login throttle, session
+lib/tasks.ts    board row queries
+lib/task-machine.ts  every task transition, free of request context
 lib/motion.ts   Apple spring presets, momentum projection, rubber-banding
 lib/time.ts     America/Boise conversions and the 3am board reset
 drizzle/        generated SQL migrations (checked in)
@@ -93,3 +147,14 @@ that content scrolls under, size-specific tracking, 44px minimum touch targets,
 and independent handling of `prefers-reduced-motion`,
 `prefers-reduced-transparency`, and `prefers-contrast`. Dark is the default —
 this gets read at 6am in a shop bay — and a light system setting flips it.
+
+The task sheet is dragged, not dismissed: `components/board/useSheetDrag.ts`
+tracks the finger 1:1, rubber-bands above the resting position, projects where a
+flick is *going* rather than where it stopped, and hands the release velocity to
+the settling spring so there is no seam between the drag and the animation. A
+sheet caught mid-flight resumes from its live on-screen position.
+
+`app/globals.css` puts its element resets in `@layer base` and its primitives in
+`@layer components` on purpose. Unlayered CSS outranks every Tailwind layer, so
+an unlayered `button { padding: 0 }` would silently beat `px-4` on every button
+in the app.

@@ -1,17 +1,16 @@
 import { redirect } from 'next/navigation';
 import { AppHeader } from '@/components/AppHeader';
-import { Board } from '@/components/board/Board';
+import { NewTaskForm } from '@/components/board/NewTaskForm';
 import { currentUser } from '@/lib/auth/session';
-import { loadBoard } from '@/lib/tasks';
+import { listActiveUsers, toPersonSummary } from '@/lib/users';
 
 export const dynamic = 'force-dynamic';
 
-export default async function BoardPage() {
+export default async function NewTaskPage() {
   const user = await currentUser();
   if (!user) redirect('/login');
 
-  const now = Date.now();
-  const board = loadBoard(user.id, now);
+  const people = listActiveUsers().map(toPersonSummary);
 
   return (
     <>
@@ -19,13 +18,10 @@ export default async function BoardPage() {
         userId={user.id}
         userName={user.name}
         isAdmin={user.isAdmin}
-        title="Apex Board"
+        title="New task"
+        backHref="/"
       />
-      <Board
-        board={board}
-        viewer={{ id: user.id, name: user.name, isAdmin: user.isAdmin }}
-        serverNow={now}
-      />
+      <NewTaskForm people={people} viewerId={user.id} />
     </>
   );
 }

@@ -50,7 +50,7 @@ export function AppHeader({
             aria-label="Settings"
             className="pressable tap-target -ml-2 flex items-center rounded-[var(--radius-pill)] px-2"
           >
-            <GearIcon />
+            <SettingsIcon />
           </Link>
         )}
 
@@ -72,16 +72,18 @@ export function AppHeader({
   );
 }
 
-function GearIcon() {
+/** Sliders rather than a cog: at 22px a cog's teeth collapse into a starburst. */
+function SettingsIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="1.7" />
       <path
-        d="M12 2.8v2.1M12 19.1v2.1M21.2 12h-2.1M4.9 12H2.8M18.5 5.5l-1.5 1.5M7 17l-1.5 1.5M18.5 18.5L17 17M7 7L5.5 5.5"
+        d="M3 7h12M19 7h2M3 17h4M11 17h10"
         stroke="currentColor"
-        strokeWidth="1.7"
+        strokeWidth="1.8"
         strokeLinecap="round"
       />
+      <circle cx="17" cy="7" r="2.4" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="9" cy="17" r="2.4" stroke="currentColor" strokeWidth="1.8" />
     </svg>
   );
 }
