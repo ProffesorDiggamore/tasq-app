@@ -30,13 +30,14 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `npm run dev` | Development server on 4744 |
 | `npm run build` / `npm start` | Production build and server |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run verify` | All six suites below — 257 checks |
+| `npm run verify` | All seven suites below — 286 checks |
 | `npm run verify:auth` | PIN hashing, throttle, and shop-time checks |
 | `npm run verify:tasks` | The task status machine, claim race, and board rows |
 | `npm run verify:scheduler` | Recurrence patterns, idempotency, and catch-up |
 | `npm run verify:notify` | Who gets told what, supplies, and History filters |
 | `npm run verify:push` | VAPID signing, encryption, and dead-subscription pruning |
 | `npm run verify:editing` | Changing your own PIN, editing tasks and repeat rules |
+| `npm run verify:setup` | Installer scripts, launchd plists, and `.env.local` editing |
 | `npm run db:generate` | Generate a migration from `lib/db/schema.ts` |
 
 ## How sign-in works
@@ -229,19 +230,27 @@ Both operations are idempotent.
 
 ## Deploying it
 
-`setup/README.md` is the full guide: launchd, Tailscale Funnel, sleep settings,
-LAN fallback, backups, and installing it on phones. Short version:
+On the shop Mac, the whole install is one command:
 
 ```bash
-sudo setup/install.sh   # launchd jobs for the server and the nightly backup
-setup/deploy.sh         # pull, build, verify, restart
+bash setup/bootstrap.sh
 ```
 
-One thing worth reading before you start: **do not put the app in
-`~/Documents`, `~/Desktop`, or `~/Downloads`.** macOS protects those with TCC
-and a LaunchDaemon cannot get consent for them, so the server starts and then
-fails with `EPERM` on the database — which looks like a code bug and is not one.
-`/Users/Shared/apex-board` is a good home.
+Run it as yourself, not with `sudo` — it asks for your password at the three
+steps that need root. It checks the machine, moves the app out of a
+TCC-protected folder if that is where it is, generates the secrets, builds,
+runs the checks, installs the launchd jobs, offers to stop the Mac sleeping,
+offers to turn on Tailscale Funnel, and prints the addresses. Re-running is
+safe: it never regenerates keys that already exist and never touches the
+database.
+
+```bash
+setup/deploy.sh      # update: pull, build, verify, restart
+setup/uninstall.sh   # remove the jobs; leaves the database and backups alone
+```
+
+`setup/README.md` has the full manual walkthrough behind that, plus
+troubleshooting.
 
 ## Notes on the two access paths
 

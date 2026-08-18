@@ -6,7 +6,7 @@
   A LaunchDaemon, not a LaunchAgent: the board has to come back after a power
   cut with nobody logging in. See setup/README.md for the tradeoff.
 
-  install.sh fills in the __PLACEHOLDERS__ and copies this into
+  install.sh substitutes the placeholder values below and copies this into
   /Library/LaunchDaemons. Do not edit the installed copy — edit this one and
   re-run install.sh, or the next deploy will quietly disagree with reality.
 -->

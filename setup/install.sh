@@ -3,7 +3,11 @@
 #
 #   sudo setup/install.sh
 #
+# Most people should run setup/bootstrap.sh instead, which does the whole
+# machine — secrets, build, sleep settings, Tailscale — and calls this.
+#
 # Re-running is safe: it replaces the installed jobs with the current templates.
+# Set APEX_ASSUME_YES=1 to skip the one prompt (bootstrap.sh does this).
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -35,8 +39,12 @@ case "$APP_DIR" in
     echo "server will fail with EPERM. Move the app somewhere like"
     echo "/Users/Shared/apex-board and re-run this script."
     echo
-    read -r -p "Continue anyway? [y/N] " reply
-    [ "$reply" = "y" ] || exit 1
+    if [ "${APEX_ASSUME_YES:-0}" = "1" ]; then
+      echo "APEX_ASSUME_YES is set — continuing anyway."
+    else
+      read -r -p "Continue anyway? [y/N] " reply
+      [ "$reply" = "y" ] || exit 1
+    fi
     ;;
 esac
 

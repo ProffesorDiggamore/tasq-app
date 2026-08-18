@@ -1,21 +1,77 @@
 # Putting Apex Board on the shop Mac
 
-End to end this is about 30 minutes, most of it waiting for Tailscale to issue a
-certificate. Do the steps in order — Funnel needs to be working before push
-notifications will.
+## Just do it for me
 
-Everything here assumes one Mac, permanently on, at one of the two shops.
+```bash
+bash setup/bootstrap.sh
+```
+
+That is the whole install. It takes about ten minutes, most of it waiting for a
+certificate, and it asks before anything consequential.
+
+It will:
+
+1. Check this Mac has what it needs (Node 20+, sqlite3) and stop with a plain
+   explanation if not.
+2. Move the app out of Documents/Desktop/Downloads if that is where it is —
+   macOS blocks background services from reading those, and the board would
+   start and then fail with a permissions error.
+3. Generate the session secret and the notification keys, and write them to
+   `.env.local`.
+4. Install dependencies, build, and run the 257 checks.
+5. Offer to stop the Mac sleeping.
+6. Install the background service and the nightly backup, and start them.
+7. Offer to turn on public HTTPS access through Tailscale, and wait for the
+   certificate.
+8. Work out the shop-network address, tell the board about both addresses, and
+   restart.
+9. Print the addresses and what to do next.
+
+**Run it as yourself, not with `sudo`.** It asks for your password at the three
+steps that need root. Running the whole thing as root would leave the database
+and `node_modules` owned by root, and the server would not start afterwards.
+
+Safe to run again at any time. It never regenerates keys that already exist,
+never touches the database, and tells you what it found.
+
+```bash
+bash setup/bootstrap.sh --yes           # no prompts, for a rebuild
+bash setup/bootstrap.sh --skip-funnel   # shop network only, no public access
+bash setup/bootstrap.sh --skip-power    # leave the sleep settings alone
+```
+
+### When it finishes
+
+1. Open the board and tap **Chris** to set the first PIN.
+2. **Settings → Get it on a phone** has a QR code. Point each phone's camera at
+   it, then **Share → Add to Home Screen**.
+3. Open it from the home screen and allow notifications.
+
+Step 2 is not optional on iPhone: iOS only allows notifications for a web app
+that has been added to the home screen, on iOS 16.4 or newer.
+
+### Afterwards
+
+| | |
+| --- | --- |
+| Update it | `setup/deploy.sh` |
+| Watch the log | `tail -f logs/server.log` |
+| Is it running | `launchctl print system/com.apexboard.server \| grep state` |
+| Back up now | `setup/backup.sh` |
+| Remove it all | `setup/uninstall.sh` — leaves your data alone |
 
 ---
 
-## 0. Where to put it
+## What it did, and how to do it by hand
 
-**Do not put the app in `~/Documents`, `~/Desktop`, or `~/Downloads`.**
+Read on if something went wrong, or if you would rather drive it yourself.
 
-macOS protects those three folders with TCC, and a LaunchDaemon has no way to
-get consent for them — the server will start and then fail with `EPERM` on the
-database, which looks like a code bug and is not one. `setup/install.sh` warns
-you about this, but it is easier to just start in the right place:
+### Where the app lives
+
+**Not `~/Documents`, `~/Desktop`, or `~/Downloads`.** macOS protects those three
+with TCC, and a LaunchDaemon has no way to get consent for them — the server
+starts and then fails with `EPERM` on the database, which looks like a code bug
+and is not one. `/Users/Shared/apex-board` is a good home.
 
 ```bash
 sudo mkdir -p /Users/Shared/apex-board
@@ -24,50 +80,32 @@ git clone <your-repo> /Users/Shared/apex-board
 cd /Users/Shared/apex-board
 ```
 
-Node 20 or newer is required. `node --version` to check; install from
-[nodejs.org](https://nodejs.org) or `brew install node` if it is missing.
-
----
-
-## 1. Configure and build
+### Secrets
 
 ```bash
 cp .env.example .env.local
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"   # SESSION_SECRET
+node scripts/generate-vapid.mjs                                                  # VAPID_*
 ```
 
-Fill in `.env.local`. Two values must be generated:
+**Generate the VAPID keys once and keep them.** Regenerating invalidates every
+phone's subscription and everyone has to turn notifications on again.
 
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
-```
-
-goes in `SESSION_SECRET`, and:
-
-```bash
-node scripts/generate-vapid.mjs
-```
-
-prints the three `VAPID_*` lines. **Generate the VAPID keys once and keep them.**
-Regenerating invalidates every phone's subscription and everyone has to turn
-notifications on again.
-
-Then:
+### Build
 
 ```bash
 npm ci
 npm run build
-npm run verify     # 182 checks; all should pass before you go further
+npm run verify     # 257 checks; all should pass before you go further
 ```
 
----
-
-## 2. Install the launchd jobs
+### The launchd jobs
 
 ```bash
 sudo setup/install.sh
 ```
 
-This installs two jobs into `/Library/LaunchDaemons` and starts them:
+Two jobs go into `/Library/LaunchDaemons`:
 
 | Job | What it does |
 | --- | --- |
@@ -82,98 +120,68 @@ tail -f logs/server.log
 curl -I http://localhost:4744/login
 ```
 
-### Why a LaunchDaemon and not a LaunchAgent
+#### Why a LaunchDaemon and not a LaunchAgent
 
 A **LaunchAgent** (`~/Library/LaunchAgents`) only runs once a user has logged
 in. After a power cut the Mac would sit at the login window and the board would
-be down until somebody walked over and typed a password — which is exactly the
-failure this is supposed to survive. You can paper over it by enabling
-automatic login, but that trades a locked Mac for an unlocked one in a shop.
+be down until somebody walked over and typed a password — exactly the failure
+this is meant to survive. You can paper over it with automatic login, but that
+trades a locked Mac for an unlocked one in a shop.
 
 A **LaunchDaemon** (`/Library/LaunchDaemons`) runs at boot, before any login.
-That is what the "survives reboots with nobody clicking anything" requirement
-needs, so that is what `install.sh` sets up. The plist sets `UserName` to your
-account so the database and backups stay owned by a real user rather than root.
+The plist sets `UserName` to your account so the database and backups stay owned
+by a real user rather than root.
 
-The cost is the TCC restriction in step 0, and no access to the login keychain —
+The cost is the TCC restriction above, and no access to the login keychain —
 neither of which this app needs.
 
-### Managing the service
+#### Managing the service
 
 Current macOS uses `bootstrap`/`bootout`, not the deprecated `load`/`unload`:
 
 ```bash
-# stop
 sudo launchctl bootout system/com.apexboard.server
-
-# start
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.apexboard.server.plist
-
-# restart in place (what deploy.sh uses)
-sudo launchctl kickstart -k system/com.apexboard.server
-
-# is it running, and what was the last exit code?
+sudo launchctl kickstart -k system/com.apexboard.server     # restart in place
 launchctl print system/com.apexboard.server | grep -E 'state|last exit'
 ```
 
----
+### Sleep
 
-## 3. Stop the Mac sleeping
-
-A sleeping Mac is an offline board. On a desktop Mac:
+A sleeping Mac is an offline board.
 
 ```bash
 sudo pmset -a sleep 0
 sudo pmset -a disksleep 0
-sudo pmset -a womp 1        # wake on network access
-```
-
-On a laptop, also:
-
-```bash
-sudo pmset -a disablesleep 1
+sudo pmset -a womp 1          # wake on network access
+sudo pmset -a disablesleep 1  # laptops only
 ```
 
 **Closing a laptop lid takes the board down** even with `disablesleep`, unless
-it is connected to an external display and power. If the shop Mac is a laptop,
-leave it open, or use a desktop.
+it is on an external display and power. If the shop Mac is a laptop, leave it
+open, or use a desktop. Confirm with `pmset -g`.
 
-Confirm with `pmset -g`.
+### Tailscale Funnel
 
----
-
-## 4. Tailscale Funnel (off-site access + HTTPS)
-
-Web Push and PWA install both require real HTTPS. Funnel provides it free, with
-a certificate Apple and Google already trust — a self-signed certificate will
-not work for either.
+Web Push and PWA install both need real HTTPS with a certificate Apple and
+Google already trust. Funnel provides that, free. Self-signed will not work.
 
 ```bash
 brew install --cask tailscale
-open -a Tailscale
-```
-
-Sign in, then from the terminal:
-
-```bash
-# Confirm the machine is on your tailnet and note its name
-tailscale status
-
-# Expose port 4744 to the public internet over HTTPS, and keep it exposed
+open -a Tailscale        # sign in
+sudo tailscale up
 sudo tailscale funnel --bg 4744
-
-# Check
 tailscale funnel status
 ```
 
 `funnel status` prints the public hostname, something like
-`https://shop-mac.tailXXXX.ts.net`. That is the address the crew uses.
+`https://shop-mac.tailXXXX.ts.net`.
 
 If Funnel refuses to start, it is almost always one of two things in the
 [admin console](https://login.tailscale.com/admin):
 
 1. **HTTPS certificates** are not enabled — DNS → HTTPS Certificates → Enable.
-2. **Funnel is not permitted** by your ACL. Add the node attribute:
+2. **Funnel is not permitted** by your ACL:
 
    ```jsonc
    "nodeAttrs": [
@@ -181,43 +189,28 @@ If Funnel refuses to start, it is almost always one of two things in the
    ]
    ```
 
-Once it works, put the hostname in `.env.local`:
+Then put the addresses in `.env.local`:
 
 ```
 APEX_PUBLIC_URL=https://shop-mac.tailXXXX.ts.net
 APEX_ALLOWED_ORIGINS=shop-mac.tailXXXX.ts.net,192.168.1.50:4744
 ```
 
-`APEX_ALLOWED_ORIGINS` should list the Funnel hostname **and** the LAN address
-(step 5), or server actions will be rejected from one of them. Restart after
-editing:
-
-```bash
-sudo launchctl kickstart -k system/com.apexboard.server
-```
+`APEX_ALLOWED_ORIGINS` must list the Funnel hostname **and** the LAN address, or
+server actions get rejected from one of them. Restart after editing.
 
 Funnel survives reboots on its own — `--bg` registers it with the Tailscale
-daemon. Re-check `tailscale funnel status` after the first reboot to be sure.
+daemon. Re-check after the first reboot to be sure.
 
----
-
-## 5. LAN fallback
-
-The same server is already reachable on the shop network. Find the Mac's
-address:
+### LAN fallback
 
 ```bash
 ipconfig getifaddr en0    # Wi-Fi
-ipconfig getifaddr en1    # Ethernet, if wired
+ipconfig getifaddr en1    # Ethernet
 ```
 
-Then `http://192.168.1.50:4744` (with your address) works from any phone,
-tablet or laptop on the shop Wi-Fi.
-
-Give the Mac a **DHCP reservation** on the router, or the address will change
-and the bookmark will break.
-
-### What works without internet
+Then `http://192.168.1.50:4744` works from anything on the shop Wi-Fi. Give the
+Mac a **DHCP reservation** on the router, or the address will change.
 
 | | Funnel (`https://…ts.net`) | LAN (`http://192.168…`) |
 | --- | --- | --- |
@@ -227,49 +220,26 @@ and the bookmark will break.
 | Install to home screen | ✓ | ✗ (needs HTTPS) |
 
 **The board itself does not need the internet. Notifications and off-site access
-do.** When the internet drops, everyone at the shop can keep using the LAN
-address; nothing is lost, and the two are the same database.
+do.** When the internet drops, everyone at the shop keeps using the LAN address;
+it is the same database.
 
 Two things worth knowing about using both addresses:
 
 - Signing in on the Funnel hostname and on the LAN address are **two separate
-  sessions** — cookies are per-host. Each device will ask for a PIN once per
-  address.
-- The session cookie is deliberately **not** marked `Secure`, because a `Secure`
-  cookie is never sent over plain HTTP and the LAN fallback would never keep
-  anyone signed in. If you ever decide to serve the board over HTTPS only, set
-  `APEX_COOKIE_SECURE=true`.
+  sessions** — cookies are per-host. Each device asks for a PIN once per address.
+- The session cookie is deliberately **not** `Secure`, because a `Secure` cookie
+  is never sent over plain HTTP and the LAN fallback would never keep anyone
+  signed in. For an HTTPS-only setup, set `APEX_COOKIE_SECURE=true`.
 
----
-
-## 6. Install it on phones
-
-Open Settings in the board — there is a QR code with the current address. Point
-a phone camera at it, then:
-
-- **iPhone:** Share → Add to Home Screen. This is not optional if you want
-  notifications: iOS only allows Web Push for home-screen apps, on iOS 16.4 or
-  newer. The board shows these instructions itself, twice, then stops.
-- **Android:** Chrome offers "Install app" in its menu, or the board prompts.
-
-After it opens from the home screen, sign in and accept the notification prompt.
-
----
-
-## 7. Backups
+### Backups
 
 The nightly job writes `backups/apex-YYYY-MM-DD.db` at 03:30 and keeps 30 days.
 It uses sqlite3's `.backup`, not `cp` — the board is live and in WAL mode, so a
 raw copy can catch the file mid-write and produce something that restores to
-garbage.
-
-Every backup is integrity-checked before it replaces the day's file, so a
-corrupt read leaves yesterday's good backup alone.
-
-Run one by hand any time:
+garbage. Every backup is integrity-checked before it replaces the day's file.
 
 ```bash
-setup/backup.sh
+setup/backup.sh          # run one now
 ```
 
 To restore:
@@ -281,22 +251,18 @@ rm -f data/apex.db-wal data/apex.db-shm
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.apexboard.server.plist
 ```
 
-These backups live on the same disk as the database, which protects you from a
-bad deploy or a mistaken delete, **not** from the disk dying. If the shop can't
+These backups sit on the same disk as the database, which protects you from a
+bad deploy or a mistaken delete, **not** from the disk dying. If the shop cannot
 lose this data, point Time Machine or a cloud sync folder at `backups/` too.
 
----
-
-## 8. Updating
+### Updating
 
 ```bash
-cd /Users/Shared/apex-board
 setup/deploy.sh
 ```
 
-That backs up the database, pulls, installs, builds, runs the 182 verification
-checks, and only then restarts the service — so a broken build leaves the
-running board alone.
+Backs up the database, pulls, installs, builds, runs the checks, and only then
+restarts — so a broken build leaves the running board alone.
 
 ---
 
@@ -304,10 +270,10 @@ running board alone.
 
 **Board is down after a reboot**
 `launchctl print system/com.apexboard.server | grep -E 'state|last exit'`.
-An exit code of 78 means `.env.local` or the build is missing.
+Exit code 78 means `.env.local` or the build is missing.
 
 **`EPERM` on the database**
-The app is in a TCC-protected folder. See step 0.
+The app is in a TCC-protected folder. Move it and re-run `setup/bootstrap.sh`.
 
 **Notifications work on Android but not iPhone**
 The iPhone is using Safari, not the home-screen app. iOS only allows push from
@@ -324,3 +290,7 @@ startup and quietly runs with notifications off.
 `tailscale funnel status`. If empty, re-run `sudo tailscale funnel --bg 4744`,
 and check the machine's key has not expired in the admin console — expiry
 disables Funnel silently.
+
+**Start over without losing data**
+`setup/uninstall.sh` then `setup/bootstrap.sh`. The database and backups are
+left alone by both.
