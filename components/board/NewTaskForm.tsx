@@ -7,6 +7,8 @@ import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Rail } from '@/components/ui/Rail';
 import { createTaskAction } from '@/app/actions';
+import { createRecurrenceAction } from '@/app/recurrence-actions';
+import { RepeatControls, type RepeatState } from '@/components/board/RepeatControls';
 import type { PersonSummary } from '@/lib/auth/results';
 import { haptic } from '@/lib/haptics';
 import { SPRING_ENTER, SPRING_SHEET } from '@/lib/motion';
@@ -24,6 +26,13 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
   const [isAsap, setIsAsap] = useState(false);
   const [hasDue, setHasDue] = useState(false);
   const [dueLocal, setDueLocal] = useState(defaultDue);
+  const [repeats, setRepeats] = useState(false);
+  const [repeat, setRepeat] = useState<RepeatState>({
+    pattern: 'weekly',
+    weekdays: [1],
+    dayOfMonth: 1,
+    spawnTime: '06:00',
+  });
   const [error, setError] = useState<string | null>(null);
 
   const canSubmit = title.trim().length > 0 && !pending;
@@ -32,13 +41,26 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
     if (!canSubmit) return;
     setError(null);
     startTransition(async () => {
-      const result = await createTaskAction({
-        title,
-        notes,
-        assignedTo,
-        isAsap,
-        dueLocal: hasDue ? dueLocal : null,
-      });
+      // A repeating task creates a rule, not a one-off. The action spawns
+      // today's instance straight away if the rule is already due.
+      const result = repeats
+        ? await createRecurrenceAction({
+            title,
+            notes,
+            defaultAssignee: assignedTo,
+            isAsap,
+            pattern: repeat.pattern,
+            weekdays: repeat.weekdays,
+            dayOfMonth: repeat.pattern === 'monthly' ? repeat.dayOfMonth : null,
+            spawnTime: repeat.spawnTime,
+          })
+        : await createTaskAction({
+            title,
+            notes,
+            assignedTo,
+            isAsap,
+            dueLocal: hasDue ? dueLocal : null,
+          });
       if (result.ok) {
         haptic('commit');
         router.push('/');
@@ -46,7 +68,7 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
         return;
       }
       haptic('error');
-      setError(result.reason === 'gone' ? 'That task is no longer there.' : messageOf(result));
+      setError('message' in result ? result.message : 'That did not go through.');
     });
   }
 
@@ -120,31 +142,67 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
 
         <div style={{ borderTop: '1px solid var(--hairline)' }} />
 
-        <SwitchRow
-          label="Due by a certain time"
-          hint="Overdue tasks turn red and nudge whoever owns them."
-          checked={hasDue}
-          onChange={setHasDue}
-        />
-
+        {/* A repeating task's timing *is* its schedule, so the two are mutually
+            exclusive rather than stacked. */}
         <AnimatePresence initial={false}>
-          {hasDue ? (
+          {repeats ? null : (
             <motion.div
+              key="due"
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={SPRING_SHEET}
               style={{ overflow: 'hidden' }}
             >
-              <input
-                type="datetime-local"
-                value={dueLocal}
-                onChange={(e) => setDueLocal(e.target.value)}
-                aria-label="Due date and time"
-                className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5"
-                style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
+              <SwitchRow
+                label="Due by a certain time"
+                hint="Overdue tasks turn red and nudge whoever owns them."
+                checked={hasDue}
+                onChange={setHasDue}
               />
-              <p className="type-caption mt-2 text-[var(--text-tertiary)]">Shop time (Boise).</p>
+              {hasDue ? (
+                <div className="mt-3">
+                  <input
+                    type="datetime-local"
+                    value={dueLocal}
+                    onChange={(e) => setDueLocal(e.target.value)}
+                    aria-label="Due date and time"
+                    className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5"
+                    style={{
+                      background: 'var(--surface-strong)',
+                      border: '1px solid var(--hairline)',
+                    }}
+                  />
+                  <p className="type-caption mt-2 text-[var(--text-tertiary)]">Shop time (Boise).</p>
+                </div>
+              ) : null}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div style={{ borderTop: '1px solid var(--hairline)' }} />
+
+        <SwitchRow
+          label="Repeats"
+          hint="Spawns a fresh copy on a schedule, like Monday greasing."
+          checked={repeats}
+          onChange={(v) => {
+            setRepeats(v);
+            if (v) setHasDue(false);
+          }}
+        />
+
+        <AnimatePresence initial={false}>
+          {repeats ? (
+            <motion.div
+              key="repeat"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={SPRING_SHEET}
+              style={{ overflow: 'hidden' }}
+            >
+              <RepeatControls value={repeat} onChange={setRepeat} />
             </motion.div>
           ) : null}
         </AnimatePresence>
@@ -181,15 +239,11 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
           className="type-headline w-full max-w-lg"
           style={{ boxShadow: 'var(--shadow-sheet)' }}
         >
-          {pending ? 'Adding…' : 'Add to the board'}
+          {pending ? 'Adding…' : repeats ? 'Add repeating task' : 'Add to the board'}
         </Button>
       </div>
     </form>
   );
-}
-
-function messageOf(result: { reason: string; message?: string }): string {
-  return result.message ?? 'That did not go through.';
 }
 
 /** Next full hour, in shop time, so the common case needs no typing. */

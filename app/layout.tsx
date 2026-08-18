@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { MotionProvider } from '@/components/ui/MotionProvider';
+import { ServiceWorkerRegistrar } from '@/components/pwa/ServiceWorkerRegistrar';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -12,6 +13,11 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
   },
   formatDetection: { telephone: false },
+  manifest: '/manifest.webmanifest',
+  icons: {
+    icon: [{ url: '/favicon.png', type: 'image/png' }],
+    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180' }],
+  },
 };
 
 export const viewport: Viewport = {
@@ -31,6 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <MotionProvider>{children}</MotionProvider>
+        <ServiceWorkerRegistrar />
       </body>
     </html>
   );

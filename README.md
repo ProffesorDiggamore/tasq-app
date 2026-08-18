@@ -30,9 +30,12 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `npm run dev` | Development server on 4744 |
 | `npm run build` / `npm start` | Production build and server |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run verify` | Both suites below |
+| `npm run verify` | All five suites below — 201 checks |
 | `npm run verify:auth` | PIN hashing, throttle, and shop-time checks |
 | `npm run verify:tasks` | The task status machine, claim race, and board rows |
+| `npm run verify:scheduler` | Recurrence patterns, idempotency, and catch-up |
+| `npm run verify:notify` | Who gets told what, supplies, and History filters |
+| `npm run verify:push` | VAPID signing, encryption, and dead-subscription pruning |
 | `npm run db:generate` | Generate a migration from `lib/db/schema.ts` |
 
 ## How sign-in works
@@ -106,6 +109,77 @@ notifications.
 The board polls every 30 seconds while the tab is visible and refreshes the
 moment it comes back, so a screen left open in the shop stays current.
 
+## Repeating tasks
+
+A rule (`recurrences`) spawns a fresh task on a schedule: daily, certain
+weekdays, or a day of the month. "The 31st" clamps to the last day in shorter
+months rather than skipping them.
+
+One in-process scheduler ticks every minute (`lib/scheduler.ts`). The
+idempotency guard is a conditional `UPDATE` on `last_spawned_on`: the day is
+*claimed* before the task is inserted, and the claim only matches while the
+column holds something other than today's local date. Overlapping ticks, a boot
+that races the interval, and a machine waking from sleep all funnel through the
+same claim, so a rule spawns at most once per local day.
+
+Catch-up is that same path — a rule whose 7am spawn time passed while the Mac
+was asleep still has yesterday's date in the column, so the next tick fires it.
+Missed *days* are deliberately not backfilled: nobody wants Monday's greasing to
+appear four times because the machine was off all week.
+
+`npm run verify:scheduler` runs sixty ticks across a day and asserts exactly one
+instance.
+
+## Supply requests
+
+Anyone can ask for something and see their own. Only admins see the queue, which
+reads as a shopping list — `item · quantity / requester`, grouped by status with
+the oldest outstanding request first. Chris advances each one with a tap, and
+status moves one step at a time in either direction, so a mis-tap is undoable
+and two admins tapping at once cannot skip a step.
+
+## History
+
+Admin only, append-only, reverse-chronological, grouped by shop-local day.
+Filter by person and by date range; "this week" runs Monday to Sunday and is the
+default. Summaries are written as finished prose at the moment the event
+happens, so History stays readable years later even if a person has been renamed
+since — no row ever has to be joined back to decode it.
+
+## Notifications
+
+Web Push over VAPID. No SMS: it costs money per message. Everything leaves
+through one function (`lib/notify.ts`), so adding a Twilio adapter later means
+writing one more `Channel` there and touching no feature code.
+
+The status machine returns notification *intents* rather than sending anything.
+That keeps it synchronous and testable — `npm run verify:notify` asserts on the
+exact audience and copy without a push service in the loop, and
+`npm run verify:push` proves the transport against a local TLS stand-in,
+including that a 410 prunes the subscription and a connection refusal does not.
+
+Sent when: a task is assigned to you, a task you created is declined, an ASAP
+task is created (everyone but the author), a task of yours goes overdue (once —
+guarded by `overdue_notified_at`), a supply request is created (admins), and
+your supply request is ordered or received.
+
+Permission is asked **after** someone is signed in and looking at the board,
+with a sentence explaining why — never on first paint, where a permission dialog
+has no story attached and gets denied out of reflex. The iOS
+Add-to-Home-Screen hint shows at most twice, then stops.
+
+## PWA
+
+Manifest, icons, and a service worker at `public/sw.js`. The worker caches
+hashed build assets and serves an offline page for navigations, but deliberately
+does **not** cache board data — a stale task list is worse than an honest
+"you're offline", because someone would act on work that is already done.
+
+It is registered in production only. Cache-first on `/_next/static/` is right
+for hashed production assets and wrong for dev chunks, where it pins old code;
+in development the component unregisters any worker and clears its caches
+instead.
+
 ## Layout
 
 ```
@@ -114,10 +188,16 @@ components/     UI, all client components under a route-owned folder
 lib/db/         Drizzle schema, connection, migrator + seed
 lib/auth/       PIN hashing, login throttle, session
 lib/tasks.ts    board row queries
+lib/recurrences.ts   repeat rules and the idempotent spawn
+lib/scheduler.ts     the one-minute tick
+lib/supplies.ts      supply requests and the admin queue
+lib/history.ts       the activity log, filtered and grouped
+lib/notify.ts        the single seam everything leaves through
 lib/task-machine.ts  every task transition, free of request context
 lib/motion.ts   Apple spring presets, momentum projection, rubber-banding
 lib/use-press.ts     pointer-down feedback with slop and cancel-by-drag
 components/ui/  Button, Rail, PressableLink, MotionProvider
+setup/          launchd jobs, backups, deploy — see setup/README.md
 lib/time.ts     America/Boise conversions and the 3am board reset
 drizzle/        generated SQL migrations (checked in)
 scripts/        verification scripts
@@ -127,6 +207,22 @@ data/           apex.db lives here (gitignored)
 Migrations and the user seed run once per server start from
 `instrumentation.ts`, so a reboot needs nobody to log in and click anything.
 Both operations are idempotent.
+
+## Deploying it
+
+`setup/README.md` is the full guide: launchd, Tailscale Funnel, sleep settings,
+LAN fallback, backups, and installing it on phones. Short version:
+
+```bash
+sudo setup/install.sh   # launchd jobs for the server and the nightly backup
+setup/deploy.sh         # pull, build, verify, restart
+```
+
+One thing worth reading before you start: **do not put the app in
+`~/Documents`, `~/Desktop`, or `~/Downloads`.** macOS protects those with TCC
+and a LaunchDaemon cannot get consent for them, so the server starts and then
+fails with `EPERM` on the database — which looks like a code bug and is not one.
+`/Users/Shared/apex-board` is a good home.
 
 ## Notes on the two access paths
 

@@ -51,3 +51,77 @@ export interface NewTaskInput {
   /** Shop-local wall clock, "YYYY-MM-DDTHH:MM", exactly as the input gives it. */
   dueLocal: string | null;
 }
+
+export type RecurrencePatternInput = 'daily' | 'weekly' | 'monthly';
+
+export interface RecurrenceInput {
+  title: string;
+  notes: string;
+  /** Null spawns each instance straight into the open pool. */
+  defaultAssignee: number | null;
+  isAsap: boolean;
+  pattern: RecurrencePatternInput;
+  /** 0 = Sunday. Used only when pattern is 'weekly'. */
+  weekdays: number[];
+  /** 1-31, clamped to the month's last day. Used only when pattern is 'monthly'. */
+  dayOfMonth: number | null;
+  /** Shop-local time of day the instance appears, "HH:MM". */
+  spawnTime: string;
+}
+
+export interface RecurrenceSummary {
+  id: number;
+  title: string;
+  pattern: RecurrencePatternInput;
+  weekdays: string | null;
+  dayOfMonth: number | null;
+  spawnTime: string;
+  active: boolean;
+  defaultAssignee: number | null;
+  assigneeName: string | null;
+  isAsap: boolean;
+  lastSpawnedOn: string | null;
+  /** Rendered server-side so the list reads the same everywhere. */
+  schedule: string;
+}
+
+export interface SupplyRow {
+  id: number;
+  item: string;
+  notes: string | null;
+  quantity: string | null;
+  status: 'requested' | 'ordered' | 'received';
+  requestedBy: number;
+  requestedByName: string;
+  createdAt: number;
+  orderedAt: number | null;
+  receivedAt: number | null;
+}
+
+export interface SupplyQueue {
+  requested: SupplyRow[];
+  ordered: SupplyRow[];
+  received: SupplyRow[];
+}
+
+/**
+ * What a transition wants said, and to whom. The status machine returns these
+ * rather than sending anything itself: it stays synchronous and testable, and
+ * every send funnels through one place (lib/notify.ts) — which is what lets an
+ * SMS adapter be added later without touching feature code.
+ */
+export type NotifyAudience =
+  | { kind: 'user'; userId: number }
+  | { kind: 'admins' }
+  | { kind: 'everyone'; except?: number };
+
+export interface NotifyIntent {
+  audience: NotifyAudience;
+  title: string;
+  body: string;
+  /** Deep link the notification opens. */
+  url: string;
+  /** Collapses repeats about the same subject instead of stacking them. */
+  tag?: string;
+  urgent?: boolean;
+}

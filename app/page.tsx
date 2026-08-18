@@ -6,9 +6,17 @@ import { loadBoard } from '@/lib/tasks';
 
 export const dynamic = 'force-dynamic';
 
-export default async function BoardPage() {
+export default async function BoardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ task?: string }>;
+}) {
   const user = await currentUser();
   if (!user) redirect('/login');
+
+  // Notifications deep-link to /?task=123 so tapping one opens that task.
+  const { task } = await searchParams;
+  const initialTaskId = task && /^\d+$/.test(task) ? Number(task) : null;
 
   const now = Date.now();
   const board = loadBoard(user.id, now);
@@ -25,6 +33,7 @@ export default async function BoardPage() {
         board={board}
         viewer={{ id: user.id, name: user.name, isAdmin: user.isAdmin }}
         serverNow={now}
+        initialTaskId={initialTaskId}
       />
     </>
   );

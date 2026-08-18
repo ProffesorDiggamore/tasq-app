@@ -66,7 +66,14 @@ export async function proxy(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // Everything except Next internals, the service worker, and static assets.
-    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icons/|api/health).*)',
+    /*
+     * Everything except Next internals, static assets, and the two things that
+     * must answer without a session redirect:
+     *  - /api/* does its own auth and answers 401 as JSON; an HTML login page
+     *    would break every fetch on the client.
+     *  - /offline and the PWA assets are served by the service worker while the
+     *    connection is down, when no round trip to check a session can happen.
+     */
+    '/((?!_next/static|_next/image|favicon\\.ico|favicon\\.png|manifest\\.webmanifest|sw\\.js|offline|icons/|api/).*)',
   ],
 };

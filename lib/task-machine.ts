@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 import { tasks, users, type User } from '@/lib/db/schema';
 import { logActivity } from '@/lib/activity';
 import { localWallClockToUtc } from '@/lib/time';
-import type { NewTaskInput, TaskActionResult } from '@/lib/board-types';
+import type { NewTaskInput, NotifyIntent, TaskActionResult } from '@/lib/board-types';
 
 /**
  * The task status machine, kept free of request context so every transition can
@@ -14,7 +14,12 @@ import type { NewTaskInput, TaskActionResult } from '@/lib/board-types';
  * Every transition is a conditional UPDATE guarded on the state it expects to
  * find. Two people acting in the same second is normal on a shared board, so a
  * miss is explained rather than thrown.
+ *
+ * Transitions return the notifications they *want sent* rather than sending
+ * them. That keeps the machine synchronous and lets the verification script
+ * assert on exactly who would be told what, without a push service in the loop.
  */
+export type MachineResult = TaskActionResult & { notify?: NotifyIntent[] };
 
 const TITLE_MAX = 120;
 const NOTES_MAX = 4000;
@@ -55,7 +60,7 @@ export function createTask(
   actor: User,
   input: NewTaskInput,
   now: number = Date.now(),
-): TaskActionResult & { taskId?: number } {
+): MachineResult & { taskId?: number } {
   const title = clean(input.title, TITLE_MAX);
   if (title.length === 0) return { ok: false, reason: 'invalid', message: 'Give it a title.' };
   const notes = clean(input.notes, NOTES_MAX) || null;
@@ -114,10 +119,35 @@ export function createTask(
     now,
   );
 
-  return { ok: true, taskId: created.id };
+  const notify: NotifyIntent[] = [];
+  const url = `/?task=${created.id}`;
+  if (assignedTo !== null && assignedTo !== actor.id) {
+    notify.push({
+      audience: { kind: 'user', userId: assignedTo },
+      title: input.isAsap ? 'ASAP — for you' : `${actor.name} assigned you a task`,
+      body: title,
+      url,
+      tag: `task-${created.id}`,
+      urgent: input.isAsap,
+    });
+  }
+  if (input.isAsap) {
+    // ASAP is the shared row, so everyone hears about it — except whoever just
+    // typed it, and without doubling up on an assignee already told above.
+    notify.push({
+      audience: { kind: 'everyone', except: actor.id },
+      title: 'ASAP',
+      body: title,
+      url,
+      tag: `task-${created.id}`,
+      urgent: true,
+    });
+  }
+
+  return { ok: true, taskId: created.id, notify };
 }
 
-export function acceptTask(actor: User, taskId: number, now: number = Date.now()): TaskActionResult {
+export function acceptTask(actor: User, taskId: number, now: number = Date.now()): MachineResult {
   const result = db
     .update(tasks)
     .set({ status: 'accepted', acceptedAt: now, updatedAt: now })
@@ -150,7 +180,7 @@ export function declineTask(
   taskId: number,
   reason: string,
   now: number = Date.now(),
-): TaskActionResult {
+): MachineResult {
   const trimmed = clean(reason, REASON_MAX) || null;
   const before = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
 
@@ -187,7 +217,18 @@ export function declineTask(
     },
     now,
   );
-  return { ok: true };
+
+  const notify: NotifyIntent[] = [];
+  if (before && before.createdBy !== actor.id) {
+    notify.push({
+      audience: { kind: 'user', userId: before.createdBy },
+      title: `${actor.name} passed on your task`,
+      body: trimmed ? `${before.title} — ${trimmed}` : `${before.title} — back up for grabs`,
+      url: `/?task=${taskId}`,
+      tag: `task-${taskId}`,
+    });
+  }
+  return { ok: true, notify };
 }
 
 /**
@@ -197,7 +238,7 @@ export function declineTask(
  * of them reports a changed row. The loser changes nothing and is told who won.
  * Claiming *is* accepting, so this skips the pending step entirely.
  */
-export function claimTask(actor: User, taskId: number, now: number = Date.now()): TaskActionResult {
+export function claimTask(actor: User, taskId: number, now: number = Date.now()): MachineResult {
   const result = db
     .update(tasks)
     .set({
@@ -231,7 +272,7 @@ export function completeTask(
   actor: User,
   taskId: number,
   now: number = Date.now(),
-): TaskActionResult {
+): MachineResult {
   const result = db
     .update(tasks)
     .set({ status: 'done', completedAt: now, completedBy: actor.id, updatedAt: now })
@@ -259,7 +300,7 @@ export function completeTask(
 }
 
 /** The undo path out of Done Today, for the task someone ticked by mistake. */
-export function reopenTask(actor: User, taskId: number, now: number = Date.now()): TaskActionResult {
+export function reopenTask(actor: User, taskId: number, now: number = Date.now()): MachineResult {
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) return { ok: false, reason: 'gone' };
 
@@ -288,7 +329,7 @@ export function reopenTask(actor: User, taskId: number, now: number = Date.now()
 }
 
 /** Soft delete, by the creator or an admin. Tasks are never removed from the file. */
-export function cancelTask(actor: User, taskId: number, now: number = Date.now()): TaskActionResult {
+export function cancelTask(actor: User, taskId: number, now: number = Date.now()): MachineResult {
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) return { ok: false, reason: 'gone' };
   if (task.createdBy !== actor.id && !actor.isAdmin) {

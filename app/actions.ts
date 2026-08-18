@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireUser } from '@/lib/auth/session';
 import * as machine from '@/lib/task-machine';
+import { dispatchAll } from '@/lib/notify';
 import type { NewTaskInput, TaskActionResult } from '@/lib/board-types';
 
 /**
@@ -14,11 +15,15 @@ function refresh(): void {
   revalidatePath('/');
 }
 
-function settle(result: TaskActionResult): TaskActionResult {
+async function settle(result: machine.MachineResult): Promise<TaskActionResult> {
   // Even a losing race leaves the caller's board out of date, so it always
   // revalidates — the person needs to see who actually got the task.
   refresh();
-  return result;
+  const { notify, ...plain } = result;
+  // Sending is awaited so a failure is logged before the response goes out, but
+  // dispatch never throws, so it cannot turn a successful action into an error.
+  if (notify && notify.length > 0) await dispatchAll(notify);
+  return plain;
 }
 
 export async function createTaskAction(input: NewTaskInput): Promise<TaskActionResult> {

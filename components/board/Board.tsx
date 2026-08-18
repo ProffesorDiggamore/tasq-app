@@ -8,6 +8,8 @@ import { BoardRow } from '@/components/board/BoardRow';
 import { TaskCard } from '@/components/board/TaskCard';
 import { TaskSheet } from '@/components/board/TaskSheet';
 import { Toast, type ToastMessage } from '@/components/board/Toast';
+import { InstallSheet } from '@/components/pwa/InstallSheet';
+import { NotificationPrompt } from '@/components/pwa/NotificationPrompt';
 import type { CardAction } from '@/components/board/task-display';
 import {
   acceptTaskAction,
@@ -35,15 +37,18 @@ export function Board({
   board,
   viewer,
   serverNow,
+  initialTaskId = null,
 }: {
   board: BoardData;
   viewer: Viewer;
   serverNow: number;
+  /** Set when a notification deep-linked straight to a task. */
+  initialTaskId?: number | null;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [busyTaskId, setBusyTaskId] = useState<number | null>(null);
-  const [openTaskId, setOpenTaskId] = useState<number | null>(null);
+  const [openTaskId, setOpenTaskId] = useState<number | null>(initialTaskId);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   // Starts at the server's clock so the first client render matches the HTML.
   const [now, setNow] = useState(serverNow);
@@ -257,6 +262,8 @@ export function Board({
       </main>
 
       <Toast message={toast} />
+      <InstallSheet />
+      <NotificationPrompt />
 
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
         <PressableLink

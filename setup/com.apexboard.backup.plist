@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nightly database backup at 03:30 local, half an hour after the board clears.
+  If the Mac is asleep or off at 03:30, launchd runs it at the next opportunity
+  rather than skipping the night.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.apexboard.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__APP_DIR__/setup/backup.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__APP_DIR__</string>
+
+    <key>UserName</key>
+    <string>__RUN_USER__</string>
+    <key>GroupName</key>
+    <string>staff</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>APEX_ROOT</key>
+        <string>__APP_DIR__</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__APP_DIR__/logs/backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>__APP_DIR__/logs/backup.error.log</string>
+</dict>
+</plist>

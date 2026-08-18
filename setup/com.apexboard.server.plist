@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Apex Board server.
+
+  A LaunchDaemon, not a LaunchAgent: the board has to come back after a power
+  cut with nobody logging in. See setup/README.md for the tradeoff.
+
+  install.sh fills in the __PLACEHOLDERS__ and copies this into
+  /Library/LaunchDaemons. Do not edit the installed copy — edit this one and
+  re-run install.sh, or the next deploy will quietly disagree with reality.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.apexboard.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__APP_DIR__/setup/run-server.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__APP_DIR__</string>
+
+    <!-- Runs as the shop user, not root: the database and backups stay owned by
+         a real account, and nothing on the box runs with more rights than it needs. -->
+    <key>UserName</key>
+    <string>__RUN_USER__</string>
+    <key>GroupName</key>
+    <string>staff</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__NODE_DIR__:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>APEX_ROOT</key>
+        <string>__APP_DIR__</string>
+    </dict>
+
+    <!-- Start at boot, and restart if the process ever dies. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <!-- Back off instead of spinning if it crashes on startup. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__APP_DIR__/logs/server.log</string>
+    <key>StandardErrorPath</key>
+    <string>__APP_DIR__/logs/server.error.log</string>
+
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

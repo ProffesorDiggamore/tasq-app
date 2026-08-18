@@ -19,7 +19,10 @@ export type ActivityVerb =
   | 'user.created'
   | 'user.updated'
   | 'user.archived'
-  | 'auth.failed';
+  | 'auth.failed'
+  | 'recurrence.created'
+  | 'recurrence.paused'
+  | 'recurrence.resumed';
 
 export type SubjectType = 'task' | 'supply_request' | 'user' | 'recurrence';
 
