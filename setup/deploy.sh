@@ -11,11 +11,15 @@ cd "$APP_DIR"
 echo "==> Backing up the database first"
 setup/backup.sh || echo "    (backup skipped)"
 
-if [ -d .git ]; then
+if [ -d .git ] && git remote | grep -q .; then
   echo "==> Pulling"
   git pull --ff-only
+elif [ -d .git ]; then
+  # A copied-over folder is a git checkout with no remote to pull from. That is
+  # a normal way to run this, so it is not an error — just build what is here.
+  echo "==> No git remote; building what is already here"
 else
-  echo "==> Not a git checkout; skipping pull"
+  echo "==> Not a git checkout; building what is already here"
 fi
 
 echo "==> Installing dependencies"
