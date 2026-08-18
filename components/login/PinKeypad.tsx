@@ -49,12 +49,13 @@ export function PinKeypad({
     [disabled, busy],
   );
 
-  // Submit only once the fourth dot has actually painted — the person should see
-  // their last digit land before the screen does anything else.
+  // Passive effects run after the commit that paints the fourth dot, so the
+  // person sees their last digit land before the screen does anything else.
+  // (Deliberately not requestAnimationFrame: a backgrounded tab never fires it,
+  // which would leave a completed PIN sitting there doing nothing.)
   useEffect(() => {
     if (buffer.length !== PIN_LENGTH) return;
-    const id = requestAnimationFrame(() => onComplete(buffer));
-    return () => cancelAnimationFrame(id);
+    onComplete(buffer);
   }, [buffer, onComplete]);
 
   // Clear and shake when the parent reports a failure.
@@ -163,6 +164,11 @@ function KeypadKey({
   onPress: (key: string) => void;
 }) {
   const isDelete = value === 'del';
+  // Cancelling pointerdown does not reliably suppress the click that follows it,
+  // so the two paths are reconciled explicitly rather than by browser behaviour —
+  // otherwise one tap enters two digits.
+  const handledByPointer = useRef(false);
+
   return (
     <button
       type="button"
@@ -170,11 +176,18 @@ function KeypadKey({
       // keypad feels dead, and there is nothing to cancel on a digit.
       onPointerDown={(e) => {
         e.preventDefault();
+        handledByPointer.current = true;
         onPress(value);
       }}
-      // Keyboard and assistive tech never see pointerdown; click covers them
-      // without double-firing, because pointerdown calls preventDefault().
-      onClick={() => onPress(value)}
+      // Keyboard and assistive tech activate the button without ever sending a
+      // pointerdown, so this is their path in.
+      onClick={() => {
+        if (handledByPointer.current) {
+          handledByPointer.current = false;
+          return;
+        }
+        onPress(value);
+      }}
       disabled={disabled}
       aria-label={isDelete ? 'Delete' : value}
       className="pressable tap-target flex h-16 items-center justify-center rounded-[var(--radius-control)] disabled:opacity-40"

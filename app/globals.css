@@ -155,6 +155,9 @@ button {
   padding: 0;
   cursor: pointer;
   touch-action: manipulation; /* removes the legacy ~300ms tap delay */
+  /* A slow tap with a gloved thumb must not start a text selection on a card. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 :focus-visible {

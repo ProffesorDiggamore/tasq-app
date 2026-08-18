@@ -10,12 +10,12 @@ import {
 const PUBLIC_PATHS = ['/login'];
 
 /**
- * Two jobs, both cheap enough for the edge runtime: bounce anonymous requests to
+ * Two jobs, both cheap enough to run before every request: bounce anonymous requests to
  * the picker, and roll the 90-day cookie forward so a phone on the home screen
  * effectively never asks again. The real authorization check happens in the
  * server actions and pages, which can see the database.
  */
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const res = NextResponse.next();
   const password = process.env.SESSION_SECRET;
   if (!password || password.length < 32) return res;

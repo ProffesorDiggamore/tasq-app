@@ -1,0 +1,171 @@
+/**
+ * Exercises the authentication rules against a throwaway database.
+ *   npx tsx scripts/verify-auth.ts
+ * Nothing here touches data/apex.db — APEX_DB_PATH points somewhere temporary.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-verify-'));
+process.env.APEX_DB_PATH = path.join(tmp, 'verify.db');
+process.env.SESSION_SECRET ??= 'x'.repeat(48);
+
+const { migrateAndSeed } = await import('../lib/db/migrate');
+const { db } = await import('../lib/db');
+const { users, activityLog, loginThrottle } = await import('../lib/db/schema');
+const { hashPin, verifyPin, isValidPinFormat } = await import('../lib/auth/pin');
+const throttle = await import('../lib/auth/throttle');
+const time = await import('../lib/time');
+const { eq } = await import('drizzle-orm');
+
+let failures = 0;
+function check(label: string, condition: boolean, detail = ''): void {
+  if (condition) {
+    console.log(`  ok    ${label}`);
+  } else {
+    failures += 1;
+    console.log(`  FAIL  ${label}${detail ? ` — ${detail}` : ''}`);
+  }
+}
+
+function section(name: string): void {
+  console.log(`\n${name}`);
+}
+
+migrateAndSeed();
+
+section('Seeding');
+const seeded = db.select().from(users).all();
+check('five people seeded', seeded.length === 5, `got ${seeded.length}`);
+check(
+  'exactly Chris, Landon, Tony, Shelly, Alyssa',
+  seeded.map((u) => u.name).join(',') === 'Chris,Landon,Tony,Shelly,Alyssa',
+  seeded.map((u) => u.name).join(','),
+);
+check('Chris is the only admin', seeded.filter((u) => u.isAdmin).length === 1);
+check('Chris is admin', seeded.find((u) => u.name === 'Chris')?.isAdmin === true);
+check('nobody has a PIN yet', seeded.every((u) => u.pinHash === null));
+
+migrateAndSeed();
+const afterSecondBoot = db.select().from(users).all();
+check('re-running migrate+seed does not duplicate', afterSecondBoot.length === 5);
+
+section('PIN format');
+check('4 digits accepted', isValidPinFormat('0042'));
+check('3 digits rejected', !isValidPinFormat('042'));
+check('5 digits rejected', !isValidPinFormat('00420'));
+check('letters rejected', !isValidPinFormat('12a4'));
+check('empty rejected', !isValidPinFormat(''));
+
+section('PIN hashing');
+const started = Date.now();
+const hash = await hashPin('2481');
+const hashMs = Date.now() - started;
+check('hash is not the PIN', !hash.includes('2481'));
+check('hash records its parameters', hash.startsWith('scrypt$65536$8$1$'));
+check('correct PIN verifies', await verifyPin('2481', hash));
+check('wrong PIN rejected', !(await verifyPin('2482', hash)));
+check(
+  `hashing is slow enough to matter (${hashMs}ms)`,
+  hashMs >= 50,
+  `${hashMs}ms — too fast to resist a 10,000-guess sweep`,
+);
+const second = await hashPin('2481');
+check('same PIN salts differently', second !== hash);
+
+section('Login throttle');
+const tony = seeded.find((u) => u.name === 'Tony')!;
+const fresh = throttle.throttleState(tony.id);
+check('starts unlocked with 5 tries', !fresh.locked && fresh.attemptsRemaining === 5);
+
+let state = throttle.throttleState(tony.id);
+for (let i = 1; i <= 4; i += 1) {
+  state = throttle.recordFailure(tony.id);
+  check(`failure ${i} leaves ${5 - i} tries, still unlocked`, !state.locked && state.attemptsRemaining === 5 - i);
+}
+state = throttle.recordFailure(tony.id);
+check('fifth failure locks out', state.locked);
+check(
+  'first lockout is about 60 seconds',
+  state.retryAfterMs > 55_000 && state.retryAfterMs <= 60_000,
+  `${state.retryAfterMs}ms`,
+);
+
+// Serve the lockout, then burn five more to prove the doubling.
+const past = Date.now() + 61_000;
+for (let i = 0; i < 5; i += 1) state = throttle.recordFailure(tony.id, past);
+check(
+  'second lockout doubles to about 120 seconds',
+  state.retryAfterMs > 115_000 && state.retryAfterMs <= 120_000,
+  `${state.retryAfterMs}ms`,
+);
+
+const later = past + 121_000;
+let third = throttle.throttleState(tony.id, later);
+check('lockout expires on its own', !third.locked);
+for (let i = 0; i < 5; i += 1) third = throttle.recordFailure(tony.id, later);
+check(
+  'third lockout doubles again to about 240 seconds',
+  third.retryAfterMs > 235_000 && third.retryAfterMs <= 240_000,
+  `${third.retryAfterMs}ms`,
+);
+
+throttle.recordSuccess(tony.id);
+const cleared = throttle.throttleState(tony.id);
+check('a correct PIN clears the counter and the doubling', !cleared.locked && cleared.attemptsRemaining === 5);
+const throttleRow = db.select().from(loginThrottle).where(eq(loginThrottle.userId, tony.id)).get();
+check('lockout level reset to zero', throttleRow?.lockoutLevel === 0);
+
+check('60s formats as seconds', throttle.formatLockout(60_000) === '60 seconds');
+check('120s formats as minutes', throttle.formatLockout(120_000) === '2 minutes');
+
+section('Activity log is append-only');
+const { logActivity } = await import('../lib/activity');
+logActivity({
+  actorId: tony.id,
+  verb: 'auth.failed',
+  subjectType: 'user',
+  subjectId: tony.id,
+  summary: 'Failed PIN for Tony (2 tries left)',
+});
+const entries = db.select().from(activityLog).all();
+check('entry written', entries.length === 1);
+check('summary is readable prose', entries[0].summary === 'Failed PIN for Tony (2 tries left)');
+check('summary carries the name, not just an id', entries[0].summary.includes('Tony'));
+
+section('Shop time (America/Boise)');
+// 2026-08-17 15:30 UTC is 09:30 in Boise (MDT, UTC-6).
+const summer = Date.UTC(2026, 7, 17, 15, 30);
+check('local date in summer', time.localDateString(summer) === '2026-08-17', time.localDateString(summer));
+check('local clock in summer', time.localClockString(summer) === '09:30', time.localClockString(summer));
+// 2026-01-17 15:30 UTC is 08:30 in Boise (MST, UTC-7).
+const winter = Date.UTC(2026, 0, 17, 15, 30);
+check('local clock in winter', time.localClockString(winter) === '08:30', time.localClockString(winter));
+// A UTC instant that is still "yesterday" in Boise must not roll the date over.
+const lateNight = Date.UTC(2026, 7, 18, 5, 0); // 23:00 on the 17th, Boise
+check('late-night UTC stays on the local date', time.localDateString(lateNight) === '2026-08-17', time.localDateString(lateNight));
+
+check('weekday is Monday', time.localWeekday(summer) === 1, String(time.localWeekday(summer)));
+check('day of month', time.localDayOfMonth(summer) === 17);
+
+const sixAm = time.localWallClockToUtc('2026-08-17', '06:00');
+check('6am local round-trips', time.localClockString(sixAm) === '06:00', time.localClockString(sixAm));
+const sixAmWinter = time.localWallClockToUtc('2026-01-17', '06:00');
+check('6am local round-trips across DST', time.localClockString(sixAmWinter) === '06:00', time.localClockString(sixAmWinter));
+
+const middayReset = time.lastBoardResetAt(summer);
+check('board reset is 3am local', time.localClockString(middayReset) === '03:00', time.localClockString(middayReset));
+check('board reset is today when it is past 3am', time.localDateString(middayReset) === '2026-08-17');
+const preDawn = Date.UTC(2026, 7, 17, 8, 0); // 02:00 Boise, before the reset
+const preDawnReset = time.lastBoardResetAt(preDawn);
+check(
+  'before 3am the last reset is yesterday',
+  time.localDateString(preDawnReset) === '2026-08-16',
+  time.localDateString(preDawnReset),
+);
+
+fs.rmSync(tmp, { recursive: true, force: true });
+
+console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} check(s) FAILED.`}`);
+process.exit(failures === 0 ? 0 : 1);

@@ -1,13 +1,13 @@
 import type { SessionOptions } from 'iron-session';
 
 /**
- * Edge-safe half of the session module. Middleware runs on the edge runtime and
+ * Edge-safe half of the session module. Proxy (formerly middleware) runs on the edge runtime and
  * must not reach the database, so the cookie shape lives here and everything
  * that touches SQLite stays in session.ts.
  */
 export interface SessionData {
   userId?: number;
-  /** When this session was last written; drives the rolling refresh in middleware. */
+  /** When this session was last written; drives the rolling refresh in proxy.ts. */
   issuedAt?: number;
 }
 
