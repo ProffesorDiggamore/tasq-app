@@ -164,6 +164,7 @@ function KeypadKey({
   onPress: (key: string) => void;
 }) {
   const isDelete = value === 'del';
+  const [pressed, setPressed] = useState(false);
   // Cancelling pointerdown does not reliably suppress the click that follows it,
   // so the two paths are reconciled explicitly rather than by browser behaviour —
   // otherwise one tap enters two digits.
@@ -172,13 +173,18 @@ function KeypadKey({
   return (
     <button
       type="button"
-      // Feedback and commit both happen on the press. Waiting for pointerup on a
-      // keypad feels dead, and there is nothing to cancel on a digit.
+      // A digit commits on press-*down*, unlike every other button in the app,
+      // which commits on release. There is nothing to cancel on a keypad and
+      // waiting for pointerup makes entering a PIN feel sluggish.
       onPointerDown={(e) => {
         e.preventDefault();
         handledByPointer.current = true;
+        setPressed(true);
         onPress(value);
       }}
+      onPointerUp={() => setPressed(false)}
+      onPointerLeave={() => setPressed(false)}
+      onPointerCancel={() => setPressed(false)}
       // Keyboard and assistive tech activate the button without ever sending a
       // pointerdown, so this is their path in.
       onClick={() => {
@@ -189,8 +195,9 @@ function KeypadKey({
         onPress(value);
       }}
       disabled={disabled}
+      data-pressed={pressed ? '' : undefined}
       aria-label={isDelete ? 'Delete' : value}
-      className="pressable tap-target flex h-16 items-center justify-center rounded-[var(--radius-control)] disabled:opacity-40"
+      className="press-surface tap-target flex h-16 items-center justify-center rounded-[var(--radius-control)] disabled:opacity-40"
       style={{
         background: isDelete ? 'transparent' : 'var(--surface)',
         border: isDelete ? '1px solid transparent' : '1px solid var(--hairline)',

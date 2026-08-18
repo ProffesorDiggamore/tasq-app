@@ -4,6 +4,8 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
+import { Button } from '@/components/ui/Button';
+import { usePress } from '@/lib/use-press';
 import {
   archiveUserAction,
   createUserAction,
@@ -57,15 +59,13 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
           const open = expanded === p.id;
           return (
             <li key={p.id} className="material-card overflow-hidden rounded-[var(--radius-card)]">
-              <button
-                type="button"
-                onClick={() => {
+              <PersonRowButton
+                open={open}
+                onToggle={() => {
                   setExpanded(open ? null : p.id);
                   setConfirming(null);
                   setMessage(null);
                 }}
-                aria-expanded={open}
-                className="pressable tap-target flex w-full items-center gap-3.5 px-4 py-3.5 text-left"
               >
                 <Avatar name={p.name} userId={p.id} size={40} />
                 <span className="min-w-0 flex-1">
@@ -87,7 +87,7 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
                 >
                   <Chevron />
                 </motion.span>
-              </button>
+              </PersonRowButton>
 
               <AnimatePresence initial={false}>
                 {open ? (
@@ -122,21 +122,22 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
                       </Row>
 
                       <div className="flex flex-wrap gap-2 pt-0.5">
-                        <SecondaryButton
+                        <Button
+                          tone="secondary"
                           disabled={pending || !p.enrolled}
-                          onClick={() => {
+                          onPress={() => {
                             if (confirming === `pin-${p.id}`) run(() => resetPinAction(p.id));
                             else setConfirming(`pin-${p.id}`);
                           }}
                         >
                           {confirming === `pin-${p.id}` ? 'Tap again to reset PIN' : 'Reset PIN'}
-                        </SecondaryButton>
+                        </Button>
 
                         {p.isSelf ? null : (
-                          <SecondaryButton
-                            danger
+                          <Button
+                            tone="danger"
                             disabled={pending}
-                            onClick={() => {
+                            onPress={() => {
                               if (confirming === `rm-${p.id}`) run(() => archiveUserAction(p.id));
                               else setConfirming(`rm-${p.id}`);
                             }}
@@ -144,7 +145,7 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
                             {confirming === `rm-${p.id}`
                               ? 'Tap again to remove'
                               : 'Remove from board'}
-                          </SecondaryButton>
+                          </Button>
                         )}
                       </div>
 
@@ -182,9 +183,10 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
               onChange={setNewAdmin}
             />
           </Row>
-          <PrimaryButton
+          <Button
+            tone="primary"
             disabled={pending || newName.trim().length < 2}
-            onClick={() =>
+            onPress={() =>
               run(async () => {
                 const result = await createUserAction(newName, newAdmin);
                 if (result.ok) {
@@ -196,7 +198,7 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
             }
           >
             Add to board
-          </PrimaryButton>
+          </Button>
         </div>
       </div>
 
@@ -220,6 +222,30 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
         ) : null}
       </AnimatePresence>
     </section>
+  );
+}
+
+/** A full-width disclosure row. Presses as one surface, like a card. */
+function PersonRowButton({
+  open,
+  onToggle,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const { pressed, handlers } = usePress(onToggle);
+  return (
+    <button
+      type="button"
+      {...handlers}
+      aria-expanded={open}
+      data-pressed={pressed ? '' : undefined}
+      className="press-surface tap-target flex w-full items-center gap-3.5 px-4 py-3.5 text-left"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -252,9 +278,9 @@ function NameField({
             exit={{ opacity: 0, scale: 0.9 }}
             transition={SPRING_ENTER}
           >
-            <PrimaryButton disabled={disabled} onClick={() => onSave(value)}>
+            <Button tone="primary" disabled={disabled} onPress={() => onSave(value)}>
               Save
-            </PrimaryButton>
+            </Button>
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -321,55 +347,7 @@ function Toggle({
   );
 }
 
-function PrimaryButton({
-  children,
-  disabled,
-  onClick,
-}: {
-  children: React.ReactNode;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="pressable tap-target type-headline rounded-[var(--radius-control)] px-4 disabled:opacity-40"
-      style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}
-    >
-      {children}
-    </button>
-  );
-}
 
-function SecondaryButton({
-  children,
-  disabled,
-  danger,
-  onClick,
-}: {
-  children: React.ReactNode;
-  disabled?: boolean;
-  danger?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="pressable tap-target type-callout rounded-[var(--radius-control)] px-3.5 disabled:opacity-40"
-      style={{
-        background: 'var(--surface-strong)',
-        border: '1px solid var(--hairline)',
-        color: danger ? 'var(--danger)' : 'var(--text)',
-      }}
-    >
-      {children}
-    </button>
-  );
-}
 
 function Chevron() {
   return (

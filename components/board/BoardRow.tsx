@@ -3,6 +3,8 @@
 import { useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { SPRING_ENTER, SPRING_SHEET } from '@/lib/motion';
+import { usePress } from '@/lib/use-press';
+import { Rail } from '@/components/ui/Rail';
 
 export interface BoardRowProps {
   title: string;
@@ -66,18 +68,13 @@ export function BoardRow({
   return (
     <section className="mt-7 first:mt-2">
       {collapsible ? (
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          className="pressable tap-target -ml-1 flex items-center gap-2 rounded-[var(--radius-control)] px-1"
-        >
+        <RowDisclosure open={open} onToggle={() => setOpen((o) => !o)}>
           {heading}
           <span className="type-caption text-[var(--text-tertiary)]">{count}</span>
           <motion.span animate={{ rotate: open ? 90 : 0 }} transition={SPRING_ENTER} className="flex">
             <Chevron />
           </motion.span>
-        </button>
+        </RowDisclosure>
       ) : (
         <div className="flex items-center gap-2 px-1">{heading}</div>
       )}
@@ -95,24 +92,42 @@ export function BoardRow({
             {isEmpty && emptyMessage ? (
               <p className="type-callout mt-2.5 px-1 text-[var(--text-tertiary)]">{emptyMessage}</p>
             ) : (
-              <div
-                className="rail mt-2.5 flex gap-3 pb-1"
-                style={{
-                  scrollSnapType: 'x proximity',
-                  // Bleed to the screen edges so a card can sit under the edge
-                  // and read as "there is more this way".
-                  marginInline: 'calc(var(--gutter) * -1)',
-                  paddingInline: 'var(--gutter)',
-                  scrollPaddingInline: 'var(--gutter)',
-                }}
+              <Rail
+                label={title}
+                className="mt-2.5 flex gap-3 pb-1"
+                // Bleed to the screen edges so a card can sit under the edge
+                // and read as "there is more this way".
               >
                 {children}
-              </div>
+              </Rail>
             )}
           </motion.div>
         ) : null}
       </AnimatePresence>
     </section>
+  );
+}
+
+function RowDisclosure({
+  open,
+  onToggle,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const { pressed, handlers } = usePress(onToggle);
+  return (
+    <button
+      type="button"
+      {...handlers}
+      aria-expanded={open}
+      data-pressed={pressed ? '' : undefined}
+      className="press press-scale tap-target -ml-1 flex items-center gap-2 rounded-[var(--radius-control)] px-1"
+    >
+      {children}
+    </button>
   );
 }
 

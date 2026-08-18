@@ -116,6 +116,8 @@ lib/auth/       PIN hashing, login throttle, session
 lib/tasks.ts    board row queries
 lib/task-machine.ts  every task transition, free of request context
 lib/motion.ts   Apple spring presets, momentum projection, rubber-banding
+lib/use-press.ts     pointer-down feedback with slop and cancel-by-drag
+components/ui/  Button, Rail, PressableLink, MotionProvider
 lib/time.ts     America/Boise conversions and the 3am board reset
 drizzle/        generated SQL migrations (checked in)
 scripts/        verification scripts
@@ -147,6 +149,37 @@ that content scrolls under, size-specific tracking, 44px minimum touch targets,
 and independent handling of `prefers-reduced-motion`,
 `prefers-reduced-transparency`, and `prefers-contrast`. Dark is the default —
 this gets read at 6am in a shop bay — and a light system setting flips it.
+
+**Press feedback** is driven by `lib/use-press.ts`, not CSS `:active`. On iOS
+`:active` only applies under conditions that are easy to lose, and it cannot
+express cancel-by-drag. The hook lights the control on pointer-*down*, keeps a
+10px slop around it so a wobbling finger still counts as pressing, lifts the
+press if the finger wanders further, re-arms if it comes back, and fires nothing
+if the release lands outside. It deliberately does not call
+`setPointerCapture` — these buttons sit inside horizontally scrolling
+carousels, and capturing the pointer would swallow the swipe.
+
+The one exception is the PIN keypad, where a digit commits on press-down: there
+is nothing to cancel on a keypad, and waiting for release makes it feel dead.
+
+**One `Button`** (`components/ui/Button.tsx`) covers every case; the card, the
+sheet, the settings list and the task form each used to carry their own
+near-identical copy. The press scale lives on an inner span so the hit area does
+not shrink away from the finger mid-press.
+
+**Carousels** keep the browser's own scrolling. Native momentum and the
+platform's rubber-band at the ends beat anything hand-rolled, and taking the
+gesture over would mean fighting non-cancelable `touchmove` on iOS mid-scroll —
+trading a good bounce for a hard stop on the device this runs on most.
+`overscroll-behavior-x: contain` stops the page scroll-chaining without
+suppressing that bounce. What the platform does *not* provide is any sign that
+there is more content past an edge, so `components/ui/Rail.tsx` fades the
+content out under whichever edge it continues past, and only that edge.
+
+`MotionConfig reducedMotion="user"` wraps the app, so spring and layout
+animations respect the OS preference — the stylesheet alone only covers CSS
+transitions. The scroll edge under the header appears only once content is
+actually beneath it; a permanent gradient is a divider wearing a costume.
 
 The task sheet is dragged, not dismissed: `components/board/useSheetDrag.ts`
 tracks the finger 1:1, rubber-bands above the resting position, projects where a

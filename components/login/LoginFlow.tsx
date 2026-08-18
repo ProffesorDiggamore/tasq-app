@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
+import { Button } from '@/components/ui/Button';
+import { usePress } from '@/lib/use-press';
 import { PinKeypad } from '@/components/login/PinKeypad';
 import { enrollPinAction, submitPinAction } from '@/app/login/actions';
 import type { PersonSummary } from '@/lib/auth/results';
@@ -156,11 +158,7 @@ export function LoginFlow({ people, next }: { people: PersonSummary[]; next: str
             <ul className="mt-8 flex w-full flex-col gap-2.5">
               {people.map((p) => (
                 <li key={p.id}>
-                  <button
-                    type="button"
-                    onClick={() => select(p)}
-                    className="material-card pressable tap-target flex w-full items-center gap-3.5 rounded-[var(--radius-card)] px-4 py-3.5 text-left"
-                  >
+                  <PersonButton onPress={() => select(p)}>
                     {/* Shared element: the PIN screen grows out of this circle, so
                         the panel is anchored to the thing that opened it. */}
                     <motion.span layoutId={`person-avatar-${p.id}`} transition={SPRING_MOVE}>
@@ -173,7 +171,7 @@ export function LoginFlow({ people, next }: { people: PersonSummary[]; next: str
                       </span>
                     </span>
                     <Chevron />
-                  </button>
+                  </PersonButton>
                 </li>
               ))}
             </ul>
@@ -203,17 +201,36 @@ export function LoginFlow({ people, next }: { people: PersonSummary[]; next: str
               />
             </div>
 
-            <button
-              type="button"
-              onClick={back}
-              className="pressable tap-target type-callout mt-5 rounded-[var(--radius-pill)] px-5 text-[var(--text-secondary)]"
-            >
-              Not you?
-            </button>
+            <div className="mt-5">
+              <Button tone="plain" pill onPress={back} className="text-[var(--text-secondary)]">
+                Not you?
+              </Button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+/** The picker rows are card-sized targets, so they press as one surface. */
+function PersonButton({
+  onPress,
+  children,
+}: {
+  onPress: () => void;
+  children: React.ReactNode;
+}) {
+  const { pressed, handlers } = usePress(onPress);
+  return (
+    <button
+      type="button"
+      {...handlers}
+      data-pressed={pressed ? '' : undefined}
+      className="material-card press-surface tap-target flex w-full items-center gap-3.5 rounded-[var(--radius-card)] px-4 py-3.5 text-left"
+    >
+      {children}
+    </button>
   );
 }
 

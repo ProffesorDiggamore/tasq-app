@@ -1,9 +1,11 @@
 'use client';
 
-import Link from 'next/link';
+import { PressableLink } from '@/components/ui/PressableLink';
 import { useRouter } from 'next/navigation';
-import { useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
+import { motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
+import { usePress } from '@/lib/use-press';
 import { switchUserAction } from '@/app/login/actions';
 
 /**
@@ -25,6 +27,17 @@ export function AppHeader({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  // The scroll edge exists to separate floating chrome from content passing
+  // under it. At the top of the page nothing is under it, so it should not be
+  // there at all — a permanent gradient is just a divider wearing a costume.
+  const [overlapping, setOverlapping] = useState(false);
+
+  useEffect(() => {
+    const update = () => setOverlapping(window.scrollY > 2);
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    return () => window.removeEventListener('scroll', update);
+  }, []);
 
   function switchUser() {
     startTransition(async () => {
@@ -38,37 +51,68 @@ export function AppHeader({
     <header className="sticky top-0 z-30">
       <div className="material-chrome flex items-center gap-3 px-4 py-2.5">
         {backHref ? (
-          <Link
+          <PressableLink
             href={backHref}
-            className="pressable tap-target type-callout -ml-2 flex items-center rounded-[var(--radius-pill)] px-3 text-[var(--accent)]"
+            className="tap-target type-callout -ml-2 flex items-center rounded-[var(--radius-pill)] px-3 text-[var(--accent)]"
           >
             Back
-          </Link>
+          </PressableLink>
         ) : (
-          <Link
+          <PressableLink
             href="/settings"
             aria-label="Settings"
-            className="pressable tap-target -ml-2 flex items-center rounded-[var(--radius-pill)] px-2"
+            className="tap-target -ml-2 flex items-center rounded-[var(--radius-pill)] px-2"
           >
             <SettingsIcon />
-          </Link>
+          </PressableLink>
         )}
 
         <h1 className="type-headline flex-1 truncate text-center">{title}</h1>
 
-        <button
-          type="button"
-          onClick={switchUser}
+        <SwitchUserButton
+          name={userName}
+          userId={userId}
+          isAdmin={isAdmin}
           disabled={pending}
-          aria-label={`Switch user — currently ${userName}`}
-          className="pressable tap-target -mr-2 flex items-center gap-2 rounded-[var(--radius-pill)] px-2 disabled:opacity-50"
-        >
-          <Avatar name={userName} userId={userId} size={30} />
-          {isAdmin ? <span className="sr-only">Admin</span> : null}
-        </button>
+          onPress={switchUser}
+        />
       </div>
-      <div className="scroll-edge h-4" aria-hidden="true" />
+      <motion.div
+        className="scroll-edge h-4"
+        animate={{ opacity: overlapping ? 1 : 0 }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
+        aria-hidden="true"
+      />
     </header>
+  );
+}
+
+function SwitchUserButton({
+  name,
+  userId,
+  isAdmin,
+  disabled,
+  onPress,
+}: {
+  name: string;
+  userId: number;
+  isAdmin: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const { pressed, handlers } = usePress(onPress, disabled);
+  return (
+    <button
+      type="button"
+      {...handlers}
+      disabled={disabled}
+      data-pressed={pressed ? '' : undefined}
+      aria-label={`Switch user — currently ${name}`}
+      className="press press-scale tap-target -mr-2 flex items-center gap-2 rounded-[var(--radius-pill)] px-2 disabled:opacity-50"
+    >
+      <Avatar name={name} userId={userId} size={30} />
+      {isAdmin ? <span className="sr-only">Admin</span> : null}
+    </button>
   );
 }
 

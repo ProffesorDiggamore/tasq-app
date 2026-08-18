@@ -181,6 +181,14 @@
    ========================================================================== */
 
 @layer components {
+  /* Optical sizing lets the face adjust its own contrast and spacing with size,
+     which is the other half of the tracking work below. */
+  .type-display,
+  .type-title,
+  .type-headline {
+    font-optical-sizing: auto;
+  }
+
   .type-display {
     font-size: clamp(1.75rem, 6vw, 2.5rem);
     line-height: 1.05;
@@ -267,16 +275,37 @@
      Interaction primitives
      ---------------------------------------------------------------------- */
 
-  /* Feedback lives on the press, not the release. Kept as a CSS transition on
-     purpose: this is a discrete state change, not a gesture-driven one. */
-  .pressable {
-    transition: transform 110ms cubic-bezier(0.2, 0, 0, 1),
-      background-color 110ms linear;
-    will-change: transform;
+  /* Feedback lives on the press, not the release. Driven by lib/use-press.ts
+     rather than :active, which on iOS applies only under conditions that are
+     easy to lose and cannot express cancel-by-dragging-away.
+
+     Kept as a CSS transition on purpose: this is a discrete state change, not a
+     gesture-driven one, so there is no velocity to carry. No permanent
+     will-change — it would pin a compositor layer for every card on the board. */
+  .press {
+    transition: background-color 110ms linear, opacity 110ms linear;
   }
 
-  .pressable:active {
-    transform: scale(0.97);
+  .press[data-pressed] {
+    background-color: var(--surface-pressed);
+  }
+
+  .press-scale {
+    transition: transform 110ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .press-scale[data-pressed] {
+    transform: scale(0.96);
+  }
+
+  /* Whole-surface targets (a card, a list row) dim and shrink as one. */
+  .press-surface {
+    transition: transform 110ms cubic-bezier(0.2, 0, 0, 1),
+      background-color 110ms linear;
+  }
+
+  .press-surface[data-pressed] {
+    transform: scale(0.975);
     background-color: var(--surface-pressed);
   }
 
@@ -285,12 +314,19 @@
     min-width: var(--tap);
   }
 
-  /* Momentum scrolling with rubber-band at the ends, never a hard stop. */
+  /* Native momentum and the platform's own rubber-band at the ends; `contain`
+     stops the page scroll-chaining without suppressing that bounce. The rail
+     bleeds past the page gutter so a card can sit under the screen edge and
+     read as "there is more this way". */
   .rail {
     overflow-x: auto;
     overscroll-behavior-x: contain;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+    scroll-snap-type: x proximity;
+    margin-inline: calc(var(--gutter) * -1);
+    padding-inline: var(--gutter);
+    scroll-padding-inline: var(--gutter);
   }
 
   .rail::-webkit-scrollbar {
@@ -317,9 +353,11 @@
     scroll-behavior: auto !important;
   }
 
-  .pressable:active {
+  /* Reduced motion keeps the feedback, drops the movement: the colour change
+     still confirms the press without any vestibular cost. */
+  .press-scale[data-pressed],
+  .press-surface[data-pressed] {
     transform: none;
-    background-color: var(--surface-pressed);
   }
 }
 

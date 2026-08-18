@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
+import { Button } from '@/components/ui/Button';
 import { useSheetDrag } from '@/components/board/useSheetDrag';
 import { cardActions, dueDisplay, type CardAction } from '@/components/board/task-display';
 import type { BoardTask } from '@/lib/board-types';
@@ -185,32 +186,36 @@ export function TaskSheet({
                 style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
               />
               <div className="mt-3 flex gap-2">
-                <SheetButton tone="quiet" disabled={busy} onPress={() => setDecliningOpen(false)}>
+                <Button tone="quiet" size="md" grow disabled={busy} onPress={() => setDecliningOpen(false)}>
                   Keep it
-                </SheetButton>
-                <SheetButton tone="danger" disabled={busy} onPress={() => onDecline(task, reason)}>
+                </Button>
+                <Button tone="danger" size="md" grow disabled={busy} onPress={() => onDecline(task, reason)}>
                   Decline
-                </SheetButton>
+                </Button>
               </div>
             </div>
           ) : (
             <div className="mt-5 flex flex-col gap-2">
               {actions.map((action) => (
-                <SheetButton
+                <Button
                   key={action}
                   tone={action === 'decline' ? 'danger' : action === 'reopen' ? 'quiet' : 'primary'}
+                  size="md"
+                  fullWidth
                   disabled={busy}
                   onPress={() =>
                     action === 'decline' ? setDecliningOpen(true) : onAction(action, task)
                   }
                 >
                   {ACTION_LABEL[action]}
-                </SheetButton>
+                </Button>
               ))}
 
               {canCancel ? (
-                <SheetButton
+                <Button
                   tone="quiet"
+                  size="md"
+                  fullWidth
                   disabled={busy}
                   onPress={() => {
                     if (confirmCancel) onCancel(task);
@@ -218,7 +223,7 @@ export function TaskSheet({
                   }}
                 >
                   {confirmCancel ? 'Tap again to cancel this task' : 'Cancel this task'}
-                </SheetButton>
+                </Button>
               ) : null}
             </div>
           )}
@@ -266,39 +271,3 @@ function StatusPill({ task, viewerId }: { task: BoardTask; viewerId: number }) {
   );
 }
 
-function SheetButton({
-  children,
-  tone,
-  disabled,
-  onPress,
-}: {
-  children: React.ReactNode;
-  tone: 'primary' | 'quiet' | 'danger';
-  disabled: boolean;
-  onPress: () => void;
-}) {
-  const styles: Record<typeof tone, React.CSSProperties> = {
-    primary: { background: 'var(--accent)', color: 'var(--accent-ink)', border: '1px solid transparent' },
-    quiet: {
-      background: 'var(--surface-strong)',
-      color: 'var(--text-secondary)',
-      border: '1px solid var(--hairline)',
-    },
-    danger: {
-      background: 'color-mix(in srgb, var(--danger) 16%, transparent)',
-      color: 'var(--danger)',
-      border: '1px solid color-mix(in srgb, var(--danger) 30%, transparent)',
-    },
-  };
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onPress}
-      className="pressable type-headline flex h-12 w-full items-center justify-center rounded-[var(--radius-control)] disabled:opacity-45"
-      style={styles[tone]}
-    >
-      {children}
-    </button>
-  );
-}

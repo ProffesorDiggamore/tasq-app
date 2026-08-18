@@ -4,6 +4,8 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
+import { Button } from '@/components/ui/Button';
+import { Rail } from '@/components/ui/Rail';
 import { createTaskAction } from '@/app/actions';
 import type { PersonSummary } from '@/lib/auth/results';
 import { haptic } from '@/lib/haptics';
@@ -85,7 +87,7 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
       </Field>
 
       <Field label="Who's doing it">
-        <div className="rail flex gap-2 pb-1">
+        <Rail className="flex gap-2 pb-1" label="Who's doing it">
           <PersonChip
             selected={assignedTo === null}
             onSelect={() => setAssignedTo(null)}
@@ -100,7 +102,7 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
               avatar={<Avatar name={p.name} userId={p.id} size={24} />}
             />
           ))}
-        </div>
+        </Rail>
         <p className="type-caption mt-2 text-[var(--text-tertiary)]">
           {assignedTo === null
             ? 'It goes up for grabs — first person to claim it owns it.'
@@ -169,18 +171,18 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
       </AnimatePresence>
 
       <div className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
-        <button
+        <Button
           type="submit"
+          tone="primary"
+          size="lg"
+          pill
           disabled={!canSubmit}
-          className="pressable type-headline flex h-14 w-full max-w-lg items-center justify-center rounded-[var(--radius-pill)] disabled:opacity-40"
-          style={{
-            background: 'var(--accent)',
-            color: 'var(--accent-ink)',
-            boxShadow: 'var(--shadow-sheet)',
-          }}
+          onPress={submit}
+          className="type-headline w-full max-w-lg"
+          style={{ boxShadow: 'var(--shadow-sheet)' }}
         >
           {pending ? 'Adding…' : 'Add to the board'}
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -229,22 +231,17 @@ function PersonChip({
   avatar?: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <Button
+      tone={selected ? 'primary' : 'secondary'}
+      pill
       aria-pressed={selected}
-      className="pressable tap-target flex shrink-0 items-center gap-2 rounded-[var(--radius-pill)] px-3.5"
-      style={{
-        background: selected ? 'var(--accent)' : 'var(--surface)',
-        color: selected ? 'var(--accent-ink)' : 'var(--text)',
-        border: `1px solid ${selected ? 'transparent' : 'var(--hairline)'}`,
-        fontWeight: selected ? 600 : 400,
-        fontSize: '0.9375rem',
-      }}
+      onPress={onSelect}
+      className="shrink-0"
+      style={selected ? undefined : { background: 'var(--surface)' }}
     >
       {avatar}
       {label}
-    </button>
+    </Button>
   );
 }
 

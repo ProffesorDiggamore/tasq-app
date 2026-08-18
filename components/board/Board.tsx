@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
-import Link from 'next/link';
+import { PressableLink } from '@/components/ui/PressableLink';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence } from 'motion/react';
 import { BoardRow } from '@/components/board/BoardRow';
@@ -259,9 +259,9 @@ export function Board({
       <Toast message={toast} />
 
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
-        <Link
+        <PressableLink
           href="/new"
-          className="pressable tap-target type-headline pointer-events-auto flex h-14 items-center gap-2 rounded-[var(--radius-pill)] px-6"
+          className="tap-target type-headline pointer-events-auto flex h-14 items-center gap-2 rounded-[var(--radius-pill)] px-6"
           style={{
             background: 'var(--accent)',
             color: 'var(--accent-ink)',
@@ -270,7 +270,7 @@ export function Board({
         >
           <PlusIcon />
           New task
-        </Link>
+        </PressableLink>
       </div>
 
       <AnimatePresence>
