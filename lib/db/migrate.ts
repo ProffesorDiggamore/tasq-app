@@ -1,6 +1,5 @@
 import 'server-only';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { eq } from 'drizzle-orm';
 import { db, sqlite } from './index';
 import { users } from './schema';
 import { MIGRATIONS_DIR } from '@/lib/paths';
@@ -38,13 +37,3 @@ export function migrateAndSeed(): void {
   }
   done = true;
 }
-
-/** Used by the CLI seed script and tests; not part of the request path. */
-export function ensureUser(name: string, isAdmin: boolean): void {
-  const found = db.select().from(users).where(eq(users.name, name)).get();
-  if (!found) {
-    db.insert(users).values({ name, isAdmin, createdAt: Date.now() }).run();
-  }
-}
-
-export { sqlite };

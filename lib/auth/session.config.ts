@@ -30,7 +30,8 @@ export function sessionOptions(): SessionOptions {
       sameSite: 'lax',
       path: '/',
       maxAge: SESSION_TTL_SECONDS,
-      // Off by default: the LAN fallback runs over plain HTTP (see lib/env.ts).
+      // Off by default: the LAN fallback runs over plain HTTP, and a Secure
+      // cookie would never survive it. See the README.
       secure: process.env.APEX_COOKIE_SECURE === 'true',
     },
   };
