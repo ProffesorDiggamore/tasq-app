@@ -3,6 +3,8 @@
 /** Browser side of Web Push: permission, subscription, and tearing it down. */
 export type PushState =
   | 'unsupported'
+  /** Reached over plain HTTP, where the push APIs do not exist at all. */
+  | 'insecure'
   | 'needs-install'
   | 'not-configured'
   | 'default'
@@ -27,6 +29,14 @@ async function serverKey(): Promise<string | null> {
 
 export async function currentPushState(isIOS: boolean, isStandalone: boolean): Promise<PushState> {
   if (typeof window === 'undefined') return 'unsupported';
+
+  // Checked before anything else. Service workers and PushManager only exist in
+  // a secure context, so on the plain-HTTP shop-network address they are simply
+  // absent — which is indistinguishable from an ancient browser unless we ask.
+  // Without this the board tells people their phone is at fault when the real
+  // answer is that they are on the wrong address.
+  if (!window.isSecureContext) return 'insecure';
+
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
     // iOS Safari in a tab reports exactly this until the app is installed.
     return isIOS && !isStandalone ? 'needs-install' : 'unsupported';

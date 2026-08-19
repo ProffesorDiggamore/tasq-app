@@ -45,3 +45,7 @@ data/
 backups/
 logs/
 .env.local
+
+# Scaffolding re-added by tooling; not part of the app
+AGENTS.md
+CLAUDE.md

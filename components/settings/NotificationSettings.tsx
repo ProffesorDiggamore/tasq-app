@@ -14,6 +14,8 @@ import { haptic } from '@/lib/haptics';
 
 const EXPLANATION: Record<PushState, string> = {
   unsupported: "This browser can't do notifications. Chrome or Safari can.",
+  insecure:
+    "You're on the shop-network address, which can't do notifications — phones only allow them over a secure https connection. Open the board on its https address instead.",
   'needs-install':
     'iPhone only allows notifications once the board is on your home screen. Share → Add to Home Screen, then open it from there.',
   'not-configured': 'Notifications are not set up on the server yet — see setup/README.md.',

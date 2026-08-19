@@ -66,8 +66,34 @@ for job in server backup; do
 
   # bootout first so a re-run replaces cleanly rather than erroring.
   launchctl bootout "system/$LABEL" 2>/dev/null || true
+
+  # bootout returns before the job is actually gone. Bootstrapping into a label
+  # that is still unloading fails with "5: Input/output error", which is what a
+  # second run of this script used to hit. Wait for it to really disappear.
+  for _ in $(seq 1 50); do
+    launchctl print "system/$LABEL" >/dev/null 2>&1 || break
+    sleep 0.2
+  done
+
   render "$APP_DIR/setup/$LABEL.plist" "$TARGET"
-  launchctl bootstrap system "$TARGET"
+
+  # Even after the wait, launchd can briefly hold the label. Retry a few times
+  # before giving up so a re-install is not a coin flip.
+  bootstrapped=0
+  for attempt in 1 2 3 4 5; do
+    if launchctl bootstrap system "$TARGET" 2>/dev/null; then
+      bootstrapped=1
+      break
+    fi
+    [ "$attempt" -lt 5 ] && sleep 1
+  done
+  if [ "$bootstrapped" -ne 1 ]; then
+    echo "Could not start $LABEL. Try:" >&2
+    echo "  sudo launchctl bootout system/$LABEL" >&2
+    echo "  sudo launchctl bootstrap system $TARGET" >&2
+    exit 1
+  fi
+
   launchctl enable "system/$LABEL"
   echo "installed $LABEL"
 done

@@ -1,6 +1,13 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  logging: {
+    // Next logs every server function call with its arguments in development,
+    // which puts PINs in plain text on the terminal — and from there into any
+    // pasted log or screen share. Production never logged them, but a dev
+    // console is exactly where someone signs in to try something out.
+    serverFunctions: false,
+  },
   // The repo lives under a parent directory that has its own lockfile; pin the
   // root so Turbopack does not walk up out of the project.
   turbopack: { root: import.meta.dirname },

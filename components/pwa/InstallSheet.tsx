@@ -25,6 +25,9 @@ export function InstallSheet() {
   useEffect(() => {
     const platform = detectPlatform();
     if (!platform.isIOS || platform.isStandalone) return;
+    // Over plain HTTP, adding to the home screen gets you a full-screen
+    // bookmark and nothing else — promising notifications would be a lie.
+    if (!window.isSecureContext) return;
     if (timesSeen(INSTALL_HINT_KEY) >= MAX_HINTS) return;
     // Let the board paint first; this is an aside, not the point of the screen.
     const id = window.setTimeout(() => {
