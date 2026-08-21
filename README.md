@@ -13,11 +13,21 @@ operate.
 
 ## Running it
 
+Double-click **`start.command`** in Finder. It installs, builds, starts the
+board on port 4744, and opens a browser at it. Leave the window open — the
+recurrence scheduler and the overdue nudges only run while the server does.
+
+From a terminal:
+
 ```bash
 cp .env.example .env.local     # then fill in SESSION_SECRET
 npm install
-npm run dev                    # http://localhost:4744
+npm run dev                    # http://localhost:4744, with hot reload
 ```
+
+On the shop Mac the board runs as a launchd service instead, so it survives
+reboots with nobody logging in — see `setup/README.md`. That requires the app to
+live outside `~/Documents`; macOS blocks background services from reading it.
 
 `SESSION_SECRET` is the only variable required to boot. Generate one with:
 
