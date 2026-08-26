@@ -1,4 +1,4 @@
-export const metadata = { title: 'Offline · Apex Board' };
+export const metadata = { title: 'Offline · Tasq' };
 
 export default function OfflinePage() {
   return (

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Apex Board — one-command setup for the shop Mac.
+# Tasq — one-command setup for the shop Mac.
 #
 #   bash setup/bootstrap.sh
 #
@@ -21,7 +21,7 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT=4744
-PREFERRED_HOME="/Users/Shared/apex-board"
+PREFERRED_HOME="/Users/Shared/tasq"
 ASSUME_YES=0
 SKIP_FUNNEL=0
 SKIP_POWER=0
@@ -97,7 +97,7 @@ env_value() {
   grep -E "^${key}=" "$file" | tail -1 | cut -d= -f2- || true
 }
 
-printf '%s\n' "${BOLD}Apex Board setup${RESET}"
+printf '%s\n' "${BOLD}Tasq setup${RESET}"
 printf '%s\n' "${DIM}$APP_DIR${RESET}"
 
 # ------------------------------------------------------------- preflight ----
@@ -184,7 +184,7 @@ else
 fi
 
 if [ -z "$(env_value VAPID_SUBJECT || true)" ]; then
-  set_env VAPID_SUBJECT "mailto:apex-board@localhost"
+  set_env VAPID_SUBJECT "mailto:tasq@localhost"
   info "Set a placeholder notification contact address."
   info "Put a real one in .env.local as VAPID_SUBJECT when you get a chance."
 fi
@@ -238,7 +238,19 @@ fi
 step "Installing the background service"
 
 info "Two jobs: the board itself, and a nightly database backup at 03:30."
-sudo APEX_ASSUME_YES=1 "$APP_DIR/setup/install.sh" || die "Service installation failed. See the output above."
+
+# Offer an offsite copy before the jobs go in, so tonight's backup already
+# lands there. iCloud Drive is the zero-setup answer on every Mac with it on.
+ICLOUD_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs"
+if [ -z "$(env_value TASQ_BACKUP_OFFSITE_DIR || true)" ] && [ -d "$ICLOUD_DIR" ]; then
+  if confirm "Also keep the nightly backups in iCloud Drive (survives this Mac dying)?"; then
+    OFFSITE="$ICLOUD_DIR/Tasq Backups"
+    mkdir -p "$OFFSITE" && set_env TASQ_BACKUP_OFFSITE_DIR "$OFFSITE" && \
+      ok "Backups will also land in $OFFSITE"
+  fi
+fi
+
+sudo TASQ_ASSUME_YES=1 "$APP_DIR/setup/install.sh" || die "Service installation failed. See the output above."
 ok "Service installed and started"
 
 info "Waiting for it to come up…"
@@ -345,20 +357,20 @@ if [ -n "$LAN_IP" ]; then
 fi
 
 if [ -n "$FUNNEL_URL" ]; then
-  set_env APEX_PUBLIC_URL "$FUNNEL_URL"
+  set_env TASQ_PUBLIC_URL "$FUNNEL_URL"
   ok "Phones will be pointed at $FUNNEL_URL"
 elif [ -n "$LAN_IP" ]; then
-  set_env APEX_PUBLIC_URL "http://$LAN_IP:$PORT"
+  set_env TASQ_PUBLIC_URL "http://$LAN_IP:$PORT"
   ok "Phones will be pointed at http://$LAN_IP:$PORT"
 fi
 
 if [ -n "$ORIGINS" ]; then
-  set_env APEX_ALLOWED_ORIGINS "$ORIGINS"
+  set_env TASQ_ALLOWED_ORIGINS "$ORIGINS"
   ok "Accepting requests from: $ORIGINS"
 fi
 
 info "Restarting so the new settings take effect…"
-sudo launchctl kickstart -k system/com.apexboard.server >/dev/null 2>&1 || true
+sudo launchctl kickstart -k system/com.tasq.server >/dev/null 2>&1 || true
 for _ in $(seq 1 30); do
   curl -fsS -o /dev/null "http://127.0.0.1:$PORT/login" 2>/dev/null && break
   sleep 1
@@ -367,7 +379,7 @@ ok "Restarted"
 
 # ----------------------------------------------------------------- done -----
 
-printf '\n%s\n' "${BOLD}${GREEN}Apex Board is running.${RESET}"
+printf '\n%s\n' "${BOLD}${GREEN}Tasq is running.${RESET}"
 echo
 [ -n "$FUNNEL_URL" ] && printf '  %sAnywhere%s   %s\n' "$BOLD" "$RESET" "$FUNNEL_URL"
 [ -n "$LAN_IP" ]     && printf '  %sAt the shop%s http://%s:%s\n' "$BOLD" "$RESET" "$LAN_IP" "$PORT"
@@ -382,7 +394,7 @@ echo
 printf '%s\n' "${BOLD}Handy afterwards${RESET}"
 echo "  Update it       $APP_DIR/setup/deploy.sh"
 echo "  Watch the log   tail -f $APP_DIR/logs/server.log"
-echo "  Is it running   launchctl print system/com.apexboard.server | grep state"
+echo "  Is it running   launchctl print system/com.tasq.server | grep state"
 echo "  Back up now     $APP_DIR/setup/backup.sh"
 echo "  Remove it all   $APP_DIR/setup/uninstall.sh"
 echo

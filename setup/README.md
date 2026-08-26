@@ -1,4 +1,4 @@
-# Putting Apex Board on the shop Mac
+# Putting Tasq on the shop Mac
 
 ## Just do it for me
 
@@ -56,7 +56,7 @@ that has been added to the home screen, on iOS 16.4 or newer.
 | --- | --- |
 | Update it | `setup/deploy.sh` |
 | Watch the log | `tail -f logs/server.log` |
-| Is it running | `launchctl print system/com.apexboard.server \| grep state` |
+| Is it running | `launchctl print system/com.tasq.server \| grep state` |
 | Back up now | `setup/backup.sh` |
 | Remove it all | `setup/uninstall.sh` — leaves your data alone |
 
@@ -71,13 +71,13 @@ Read on if something went wrong, or if you would rather drive it yourself.
 **Not `~/Documents`, `~/Desktop`, or `~/Downloads`.** macOS protects those three
 with TCC, and a LaunchDaemon has no way to get consent for them — the server
 starts and then fails with `EPERM` on the database, which looks like a code bug
-and is not one. `/Users/Shared/apex-board` is a good home.
+and is not one. `/Users/Shared/tasq` is a good home.
 
 ```bash
-sudo mkdir -p /Users/Shared/apex-board
-sudo chown "$USER":staff /Users/Shared/apex-board
-git clone <your-repo> /Users/Shared/apex-board
-cd /Users/Shared/apex-board
+sudo mkdir -p /Users/Shared/tasq
+sudo chown "$USER":staff /Users/Shared/tasq
+git clone <your-repo> /Users/Shared/tasq
+cd /Users/Shared/tasq
 ```
 
 ### Secrets
@@ -109,13 +109,13 @@ Two jobs go into `/Library/LaunchDaemons`:
 
 | Job | What it does |
 | --- | --- |
-| `com.apexboard.server` | Runs the board on port 4744, restarts it if it dies, starts it at boot |
-| `com.apexboard.backup` | Copies the database to `backups/` at 03:30 every night |
+| `com.tasq.server` | Runs the board on port 4744, restarts it if it dies, starts it at boot |
+| `com.tasq.backup` | Copies the database to `backups/` at 03:30 every night |
 
 Check it came up:
 
 ```bash
-launchctl print system/com.apexboard.server | head -20
+launchctl print system/com.tasq.server | head -20
 tail -f logs/server.log
 curl -I http://localhost:4744/login
 ```
@@ -140,10 +140,10 @@ neither of which this app needs.
 Current macOS uses `bootstrap`/`bootout`, not the deprecated `load`/`unload`:
 
 ```bash
-sudo launchctl bootout system/com.apexboard.server
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.apexboard.server.plist
-sudo launchctl kickstart -k system/com.apexboard.server     # restart in place
-launchctl print system/com.apexboard.server | grep -E 'state|last exit'
+sudo launchctl bootout system/com.tasq.server
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.tasq.server.plist
+sudo launchctl kickstart -k system/com.tasq.server     # restart in place
+launchctl print system/com.tasq.server | grep -E 'state|last exit'
 ```
 
 ### Sleep
@@ -162,6 +162,9 @@ it is on an external display and power. If the shop Mac is a laptop, leave it
 open, or use a desktop. Confirm with `pmset -g`.
 
 ### Tailscale Funnel
+
+> Full walkthrough, start to finish: **[TAILSCALE.md](./TAILSCALE.md)** —
+> install, sign-in, certificates, phones, and troubleshooting.
 
 Web Push and PWA install both need real HTTPS with a certificate Apple and
 Google already trust. Funnel provides that, free. Self-signed will not work.
@@ -192,11 +195,11 @@ If Funnel refuses to start, it is almost always one of two things in the
 Then put the addresses in `.env.local`:
 
 ```
-APEX_PUBLIC_URL=https://shop-mac.tailXXXX.ts.net
-APEX_ALLOWED_ORIGINS=shop-mac.tailXXXX.ts.net,192.168.1.50:4744
+TASQ_PUBLIC_URL=https://shop-mac.tailXXXX.ts.net
+TASQ_ALLOWED_ORIGINS=shop-mac.tailXXXX.ts.net,192.168.1.50:4744
 ```
 
-`APEX_ALLOWED_ORIGINS` must list the Funnel hostname **and** the LAN address, or
+`TASQ_ALLOWED_ORIGINS` must list the Funnel hostname **and** the LAN address, or
 server actions get rejected from one of them. Restart after editing.
 
 Funnel survives reboots on its own — `--bg` registers it with the Tailscale
@@ -229,14 +232,19 @@ Two things worth knowing about using both addresses:
   sessions** — cookies are per-host. Each device asks for a PIN once per address.
 - The session cookie is deliberately **not** `Secure`, because a `Secure` cookie
   is never sent over plain HTTP and the LAN fallback would never keep anyone
-  signed in. For an HTTPS-only setup, set `APEX_COOKIE_SECURE=true`.
+  signed in. For an HTTPS-only setup, set `TASQ_COOKIE_SECURE=true`.
 
 ### Backups
 
-The nightly job writes `backups/apex-YYYY-MM-DD.db` at 03:30 and keeps 30 days.
+The nightly job writes `backups/tasq-YYYY-MM-DD.db` at 03:30 and keeps 30 days.
 It uses sqlite3's `.backup`, not `cp` — the board is live and in WAL mode, so a
 raw copy can catch the file mid-write and produce something that restores to
 garbage. Every backup is integrity-checked before it replaces the day's file.
+
+Set `TASQ_BACKUP_OFFSITE_DIR` in `.env.local` to a synced folder (iCloud Drive,
+Dropbox, a NAS mount) and every night's verified backup is copied there too, on
+the same 30-day retention. `bootstrap.sh` offers the iCloud Drive location
+automatically.
 
 ```bash
 setup/backup.sh          # run one now
@@ -245,10 +253,10 @@ setup/backup.sh          # run one now
 To restore:
 
 ```bash
-sudo launchctl bootout system/com.apexboard.server
-cp backups/apex-2026-08-17.db data/apex.db
-rm -f data/apex.db-wal data/apex.db-shm
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.apexboard.server.plist
+sudo launchctl bootout system/com.tasq.server
+cp backups/tasq-2026-08-17.db data/tasq.db
+rm -f data/tasq.db-wal data/tasq.db-shm
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.tasq.server.plist
 ```
 
 These backups sit on the same disk as the database, which protects you from a
@@ -269,7 +277,7 @@ restarts — so a broken build leaves the running board alone.
 ## Troubleshooting
 
 **Board is down after a reboot**
-`launchctl print system/com.apexboard.server | grep -E 'state|last exit'`.
+`launchctl print system/com.tasq.server | grep -E 'state|last exit'`.
 Exit code 78 means `.env.local` or the build is missing.
 
 **`EPERM` on the database**
@@ -284,7 +292,7 @@ an installed PWA on 16.4+.
 startup and quietly runs with notifications off.
 
 **Server actions fail from one address but not the other**
-`APEX_ALLOWED_ORIGINS` is missing that host. Add it and restart.
+`TASQ_ALLOWED_ORIGINS` is missing that host. Add it and restart.
 
 **Funnel worked, then stopped**
 `tailscale funnel status`. If empty, re-run `sudo tailscale funnel --bg 4744`,

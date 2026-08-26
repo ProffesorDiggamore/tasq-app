@@ -1,5 +1,5 @@
 #!/bin/bash
-# Double-click this file in Finder to run the Apex Board.
+# Double-click this file in Finder to run the Tasq.
 # Close this window (or Ctrl+C) when done.
 
 cd "$(dirname "$0")"
@@ -38,7 +38,7 @@ npm run build || {
   done ) &
 
 echo
-echo "Apex Board is starting on http://localhost:$PORT"
+echo "Tasq is starting on http://localhost:$PORT"
 LAN="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"
 [ -n "$LAN" ] && echo "On the shop network: http://$LAN:$PORT"
 echo

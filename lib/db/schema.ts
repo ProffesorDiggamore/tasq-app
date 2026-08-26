@@ -25,6 +25,12 @@ export const users = sqliteTable(
     pinHash: text('pin_hash'),
     /** Admin gates exactly two things: the Supply Requests queue and full History. */
     isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * The account that activated the board with the setup code. Permanent:
+     * it cannot be demoted or removed, because the buyer is the owner and
+     * must never be able to lock themselves out of their own purchase.
+     */
+    isFounder: integer('is_founder', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull(),
     /** Soft delete. Archived people vanish from pickers but keep their history. */
     archivedAt: integer('archived_at'),
@@ -51,6 +57,8 @@ export const recurrences = sqliteTable(
     dayOfMonth: integer('day_of_month'),
     /** Local (America/Boise) time of day the instance appears, "HH:MM". */
     spawnTime: text('spawn_time').notNull().default('06:00'),
+    /** Bounty in whole cents copied onto every spawned instance. */
+    rewardCents: integer('reward_cents'),
     active: integer('active', { mode: 'boolean' }).notNull().default(true),
     createdAt: integer('created_at').notNull(),
     /** Soft delete. A removed rule stops spawning and leaves the list, but the
@@ -90,6 +98,8 @@ export const tasks = sqliteTable(
     ),
     /** Set once when an overdue push has been sent, so it fires once, not repeatedly. */
     overdueNotifiedAt: integer('overdue_notified_at'),
+    /** Bounty in whole cents offered by an admin; null means no cash value. */
+    rewardCents: integer('reward_cents'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },
@@ -158,6 +168,39 @@ export const pushSubscriptions = sqliteTable(
 );
 
 /**
+ * Deployment-level settings that are not a person's to edit one field at a
+ * time: the business name, and the push keys when they were generated here
+ * rather than passed in through the environment.
+ */
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+/**
+ * One-time codes. An `initial` code activates a fresh install — the door
+ * closes behind the first admin. A `recovery` code is minted from the machine
+ * (npm run recover) precisely when that door needs reopening: it adds another
+ * admin to a live board. Both are stored hashed; plaintext never persists.
+ */
+export const setupCodes = sqliteTable(
+  'setup_codes',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** SHA-256 of the code. The code itself only ever exists in transit. */
+    codeHash: text('code_hash').notNull(),
+    kind: text('kind')
+      .$type<'initial' | 'recovery'>()
+      .notNull()
+      .default('initial'),
+    createdAt: integer('created_at').notNull(),
+    usedAt: integer('used_at'),
+  },
+  (t) => [index('setup_codes_unused_idx').on(t.usedAt)],
+);
+
+/**
  * Login throttle state, kept out of `users` so editing a person in Settings
  * never touches their lockout. A 4-digit PIN is only 10,000 combinations, so
  * this is the real defence — the hash is the second one.
@@ -180,3 +223,4 @@ export type Recurrence = typeof recurrences.$inferSelect;
 export type SupplyRequest = typeof supplyRequests.$inferSelect;
 export type ActivityEntry = typeof activityLog.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+export type SetupCode = typeof setupCodes.$inferSelect;

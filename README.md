@@ -1,15 +1,37 @@
-# Apex Board
+# Tasq
 
-A task and communication board for Apex Rental's Nampa and Caldwell shops. Runs
-on one Mac, reachable from both shops and from phones off-site, costs nothing to
-operate.
+A task and communication board for shops that run on shared screens and phones
+in people's pockets. Packaged so it can be deployed
+for another business as-is: one Mac, reachable from the shop floor and from
+phones off-site, costs nothing to operate.
 
 - **Stack:** Next.js 16 (App Router) · TypeScript · SQLite via better-sqlite3 ·
   Drizzle ORM · iron-session · Motion · Tailwind CSS v4
 - **Port:** 4744
-- **Data:** a single file at `data/apex.db` (WAL mode)
-- **Time zone:** everything is stored as Unix ms UTC and displayed in
-  `America/Boise`
+- **Data:** a single file at `data/tasq.db` (WAL mode)
+- **Time zone:** everything is stored as Unix ms UTC and displayed in the
+  shop's zone (`America/Boise` by default, configurable per deployment)
+
+## Selling it / setting up a customer
+
+One installation serves one business. Nothing about a business ships inside
+the app — no people, no name — so a fresh install is activated like this:
+
+1. Install and start the board (`start.command`, or `bash setup/bootstrap.sh`
+   on the shop Mac). On first boot the server mints a **one-time setup code**,
+   prints it in its window, and saves it to `data/setup-code.txt`.
+2. Give that code to the business owner. They open `/setup` on the board,
+   enter the code, type their business name, and create themselves an admin
+   account with a 4-digit PIN. The code stops working the moment they do.
+3. From Settings they add everyone else — name and admin flag only; each
+   person sets their own PIN the first time they tap their name.
+
+The seller never needs database access per customer: the code *is* the
+handoff. If a board should be pre-labelled before handoff, set `TASQ_ORG_NAME`
+in `.env.local`; the owner's choice during setup overrides it.
+
+There is deliberately no signup page beyond this: `/setup` refuses to run once
+anyone is on the board, and unused codes are single-use and stored hashed.
 
 ## Running it
 
@@ -40,8 +62,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `npm run dev` | Development server on 4744 |
 | `npm run build` / `npm start` | Production build and server |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run verify` | All seven suites below — 286 checks |
+| `npm run verify` | All eight suites below |
 | `npm run verify:auth` | PIN hashing, throttle, and shop-time checks |
+| `npm run verify:onboarding` | Setup-code lifecycle and push-key provisioning |
 | `npm run verify:tasks` | The task status machine, claim race, and board rows |
 | `npm run verify:scheduler` | Recurrence patterns, idempotency, and catch-up |
 | `npm run verify:notify` | Who gets told what, supplies, and History filters |
@@ -52,8 +75,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 ## How sign-in works
 
-Five people are seeded on first boot: Chris (admin), Landon, Tony, Shelly,
-Alyssa. There is no signup.
+A new board starts empty and is activated with a one-time code (see
+"Selling it / setting up a customer" above). After that, there is no signup —
+an admin adds people in Settings, by name only.
 
 1. The first time someone taps their name they set a 4-digit PIN, confirmed
    twice. Every later tap asks for it.
@@ -78,8 +102,11 @@ Alyssa. There is no signup.
 
 ## The task status machine
 
-Anyone can create a task for anyone, including for themselves and for the open
-pool. `lib/task-machine.ts` holds every transition; `app/actions.ts` only
+Only admins create tasks — posting work, and especially posting a cash
+reward, is an owner decision — but any task can be for anyone, including
+themselves and the open pool. A task can carry a **cash reward** (whole
+dollars, set by the admin): whoever finishes it pockets it, and it shows as a
+green tag on the card. `lib/task-machine.ts` holds every transition; `app/actions.ts` only
 resolves who is asking and revalidates.
 
 - **Assigned on creation** → `pending`. That person **Accepts** (→ `accepted`)
@@ -182,6 +209,13 @@ Web Push over VAPID. No SMS: it costs money per message. Everything leaves
 through one function (`lib/notify.ts`), so adding a Twilio adapter later means
 writing one more `Channel` there and touching no feature code.
 
+**Setup is automatic.** On first use the board generates a VAPID key pair and
+stores it in its own database, so notifications work on a fresh install with
+no `.env.local` editing. Setting `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` /
+`VAPID_SUBJECT` in the environment overrides the stored pair — that is what
+`setup/bootstrap.sh` does — and keys should be kept forever once set:
+regenerating invalidates every phone's subscription.
+
 The status machine returns notification *intents* rather than sending anything.
 That keeps it synchronous and testable — `npm run verify:notify` asserts on the
 exact audience and copy without a push service in the loop, and
@@ -215,8 +249,10 @@ instead.
 ```
 app/            routes and server actions
 components/     UI, all client components under a route-owned folder
-lib/db/         Drizzle schema, connection, migrator + seed
+lib/db/         Drizzle schema, connection, migrator + first-boot setup code
 lib/auth/       PIN hashing, login throttle, session
+lib/settings.ts business-level settings (org name, generated push keys)
+lib/setup.ts    one-time activation codes and the first admin account
 lib/tasks.ts    board row queries
 lib/recurrences.ts   repeat rules and the idempotent spawn
 lib/scheduler.ts     the one-minute tick
@@ -228,15 +264,16 @@ lib/motion.ts   Apple spring presets, momentum projection, rubber-banding
 lib/use-press.ts     pointer-down feedback with slop and cancel-by-drag
 components/ui/  Button, Rail, PressableLink, MotionProvider
 setup/          launchd jobs, backups, deploy — see setup/README.md
-lib/time.ts     America/Boise conversions and the 3am board reset
+lib/time.ts     shop-time conversions and the board reset hour
 drizzle/        generated SQL migrations (checked in)
 scripts/        verification scripts
-data/           apex.db lives here (gitignored)
+data/           tasq.db lives here (gitignored)
 ```
 
-Migrations and the user seed run once per server start from
+Migrations and the first-boot setup code run once per server start from
 `instrumentation.ts`, so a reboot needs nobody to log in and click anything.
-Both operations are idempotent.
+Both operations are idempotent. A fresh install seeds no people: the owner
+redeems the code at `/setup` to create the first admin account.
 
 ## Deploying it
 
@@ -260,7 +297,9 @@ setup/uninstall.sh   # remove the jobs; leaves the database and backups alone
 ```
 
 `setup/README.md` has the full manual walkthrough behind that, plus
-troubleshooting.
+troubleshooting. `setup/TAILSCALE.md` is the step-by-step guide for putting the
+board on phones through Tailscale Funnel — public HTTPS for free, and the thing
+notifications depend on.
 
 ## Notes on the two access paths
 
@@ -268,11 +307,11 @@ The board is served over HTTPS through Tailscale Funnel and over plain HTTP on
 the shop LAN when the internet is down. Because of that:
 
 - The session cookie is **not** `Secure` by default, or the LAN fallback would
-  never keep anyone signed in. Set `APEX_COOKIE_SECURE=true` if you ever serve
+  never keep anyone signed in. Set `TASQ_COOKIE_SECURE=true` if you ever serve
   the board over HTTPS only.
 - Cookies are per-host, so signing in on the Funnel hostname and on the LAN IP
   are two separate sessions. That is inherent to using both addresses.
-- Set `APEX_ALLOWED_ORIGINS` to the Funnel hostname and the LAN address so
+- Set `TASQ_ALLOWED_ORIGINS` to the Funnel hostname and the LAN address so
   server actions accept requests from both.
 
 ## Design

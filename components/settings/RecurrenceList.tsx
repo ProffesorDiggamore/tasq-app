@@ -18,6 +18,7 @@ import type { ActionResult } from '@/lib/action-result';
 import { usePress } from '@/lib/use-press';
 import { haptic } from '@/lib/haptics';
 import { SPRING_ENTER, SPRING_SHEET } from '@/lib/motion';
+import { parseRewardInput } from '@/components/board/NewTaskForm';
 
 function toRepeatState(rule: RecurrenceSummary): RepeatState {
   return {
@@ -263,6 +264,7 @@ function RuleEditor({
     weekdays: number[];
     dayOfMonth: number | null;
     spawnTime: string;
+    rewardCents: number | null;
   }) => void;
   onDelete: () => void;
 }) {
@@ -271,6 +273,9 @@ function RuleEditor({
   const [assignee, setAssignee] = useState<number | null>(rule.defaultAssignee);
   const [isAsap, setIsAsap] = useState(rule.isAsap);
   const [repeat, setRepeat] = useState<RepeatState>(toRepeatState(rule));
+  const [reward, setReward] = useState(
+    rule.rewardCents === null ? '' : String(rule.rewardCents / 100),
+  );
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
@@ -377,6 +382,27 @@ function RuleEditor({
         Copies already on the board keep what they say now — only the next one changes.
       </p>
 
+      <div>
+        <span className="type-label block text-[var(--text-tertiary)]">Cash reward</span>
+        <div className="mt-2 flex items-center gap-2">
+          <span
+            className="type-headline px-1"
+            style={{ color: reward ? 'var(--accent)' : 'var(--text-tertiary)' }}
+          >
+            $
+          </span>
+          <input
+            value={reward}
+            onChange={(e) => setReward(e.target.value.replace(/[^0-9.]/g, '').slice(0, 7))}
+            inputMode="decimal"
+            placeholder="0"
+            aria-label="Cash reward in dollars"
+            className="tap-target type-headline w-28 rounded-[var(--radius-control)] px-3.5 py-2"
+            style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
+          />
+        </div>
+      </div>
+
       <div className="flex gap-2">
         <Button tone="quiet" grow disabled={busy} onPress={onCancel}>
           Cancel
@@ -395,6 +421,7 @@ function RuleEditor({
               weekdays: repeat.weekdays,
               dayOfMonth: repeat.pattern === 'monthly' ? repeat.dayOfMonth : null,
               spawnTime: repeat.spawnTime,
+              rewardCents: parseRewardInput(reward),
             })
           }
         >

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { PressableLink } from '@/components/ui/PressableLink';
 import { useRouter } from 'next/navigation';
-import { AnimatePresence } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { BoardRow } from '@/components/board/BoardRow';
 import { TaskCard } from '@/components/board/TaskCard';
 import { TaskSheet } from '@/components/board/TaskSheet';
@@ -11,6 +11,7 @@ import { Toast, type ToastMessage } from '@/components/board/Toast';
 import { InstallSheet } from '@/components/pwa/InstallSheet';
 import { NotificationPrompt } from '@/components/pwa/NotificationPrompt';
 import type { CardAction } from '@/components/board/task-display';
+import { SPRING_ENTER } from '@/lib/motion';
 import {
   acceptTaskAction,
   cancelTaskAction,
@@ -213,14 +214,15 @@ export function Board({
           emptyMessage="Nothing urgent right now."
         >
           <AnimatePresence initial={false} mode="popLayout">
-            {board.asap.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                emphasis
-                busy={busyTaskId === task.id}
-                {...cardProps}
-              />
+            {board.asap.map((task, i) => (
+              <StaggeredCard key={task.id} index={i}>
+                <TaskCard
+                  task={task}
+                  emphasis
+                  busy={busyTaskId === task.id}
+                  {...cardProps}
+                />
+              </StaggeredCard>
             ))}
           </AnimatePresence>
         </BoardRow>
@@ -282,6 +284,7 @@ export function Board({
       <NotificationPrompt />
 
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+        {viewer.isAdmin ? (
         <PressableLink
           href="/new"
           className="tap-target type-headline pointer-events-auto flex h-14 items-center gap-2 rounded-[var(--radius-pill)] px-6"
@@ -294,6 +297,7 @@ export function Board({
           <PlusIcon />
           New task
         </PressableLink>
+        ) : null}
       </div>
 
       <AnimatePresence>
@@ -315,6 +319,22 @@ export function Board({
         ) : null}
       </AnimatePresence>
     </>
+  );
+}
+
+/** Cards slide in with a tiny per-card delay — a board that loads in one
+ *  motion reads as alive; a wall of simultaneous pop-ins reads as noise. */
+function StaggeredCard({ index, children }: { index: number; children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={{ ...SPRING_ENTER, delay: Math.min(index * 0.045, 0.35) }}
+      className="shrink-0"
+    >
+      {children}
+    </motion.div>
   );
 }
 

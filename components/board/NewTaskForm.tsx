@@ -16,6 +16,13 @@ import { localDateString, localClockString } from '@/lib/time';
 
 const TITLE_MAX = 120;
 
+/** Dollars typed by a human ("5", "12.50") to whole cents; junk becomes no bounty. */
+export function parseRewardInput(text: string): number | null {
+  const parsed = Number.parseFloat(text.replace(/[$,\s]/g, ''));
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 500) return null;
+  return Math.round(parsed * 100);
+}
+
 export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; viewerId: number }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -23,6 +30,7 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
   const [notes, setNotes] = useState('');
   /** undefined = "Anyone" (the open pool). */
   const [assignedTo, setAssignedTo] = useState<number | null>(null);
+  const [reward, setReward] = useState('');
   const [isAsap, setIsAsap] = useState(false);
   const [hasDue, setHasDue] = useState(false);
   const [dueLocal, setDueLocal] = useState(defaultDue);
@@ -53,6 +61,7 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
             weekdays: repeat.weekdays,
             dayOfMonth: repeat.pattern === 'monthly' ? repeat.dayOfMonth : null,
             spawnTime: repeat.spawnTime,
+            rewardCents: parseRewardInput(reward),
           })
         : await createTaskAction({
             title,
@@ -60,6 +69,7 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
             assignedTo,
             isAsap,
             dueLocal: hasDue ? dueLocal : null,
+            rewardCents: parseRewardInput(reward),
           });
       if (result.ok) {
         haptic('commit');
@@ -129,6 +139,31 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
           {assignedTo === null
             ? 'It goes up for grabs — first person to claim it owns it.'
             : 'They get a notification and can accept or pass it back to the pool.'}
+        </p>
+      </Field>
+
+      <Field label="Cash reward" hint="Optional">
+        <div className="flex items-center gap-2">
+          <span
+            className="type-headline px-1"
+            style={{ color: reward ? 'var(--accent)' : 'var(--text-tertiary)' }}
+          >
+            $
+          </span>
+          <input
+            value={reward}
+            onChange={(e) => setReward(e.target.value.replace(/[^0-9.]/g, '').slice(0, 7))}
+            inputMode="decimal"
+            placeholder="0"
+            aria-label="Cash reward in dollars"
+            className="tap-target type-headline w-28 rounded-[var(--radius-control)] px-3.5 py-2"
+            style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
+          />
+        </div>
+        <p className="type-caption mt-2 text-[var(--text-tertiary)]">
+          {reward.length > 0 && parseRewardInput(reward) === null
+            ? 'Whole dollars up to $500.'
+            : 'Whoever finishes it pockets this. Shows as a green tag on the card.'}
         </p>
       </Field>
 

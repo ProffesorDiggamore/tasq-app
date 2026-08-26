@@ -1,0 +1,1 @@
+ALTER TABLE `setup_codes` ADD `kind` text DEFAULT 'initial' NOT NULL;

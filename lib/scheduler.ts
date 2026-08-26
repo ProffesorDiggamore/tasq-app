@@ -3,7 +3,7 @@ import { spawnDueRecurrences } from '@/lib/recurrences';
 import { markOverdueTasks } from '@/lib/overdue';
 
 declare global {
-  var __apexScheduler: NodeJS.Timeout | undefined;
+  var __tasqScheduler: NodeJS.Timeout | undefined;
 }
 
 const TICK_MS = 60_000;
@@ -20,19 +20,19 @@ const TICK_MS = 60_000;
 export function startScheduler(): void {
   // Next reloads modules in development; without this every edit would leave
   // another live interval behind.
-  if (globalThis.__apexScheduler) clearInterval(globalThis.__apexScheduler);
+  if (globalThis.__tasqScheduler) clearInterval(globalThis.__tasqScheduler);
 
   const tick = () => {
     try {
       const report = spawnDueRecurrences();
       if (report.spawned > 0) {
-        console.log(`[apex] spawned ${report.spawned} repeating task(s): ${report.titles.join(', ')}`);
+        console.log(`[tasq] spawned ${report.spawned} repeating task(s): ${report.titles.join(', ')}`);
       }
       void markOverdueTasks();
     } catch (error) {
       // A scheduler that dies on one bad tick takes the whole board's repeating
       // work with it, so this logs and lives to try again next minute.
-      console.error('[apex] scheduler tick failed', error);
+      console.error('[tasq] scheduler tick failed', error);
     }
   };
 
@@ -40,5 +40,5 @@ export function startScheduler(): void {
   const timer = setInterval(tick, TICK_MS);
   // Never hold the process open on this alone.
   timer.unref?.();
-  globalThis.__apexScheduler = timer;
+  globalThis.__tasqScheduler = timer;
 }

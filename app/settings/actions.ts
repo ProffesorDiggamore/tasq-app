@@ -7,6 +7,8 @@ import { users, loginThrottle } from '@/lib/db/schema';
 import { requireAdmin, requireUser } from '@/lib/auth/session';
 import { changeOwnPin } from '@/lib/change-pin';
 import { logActivity } from '@/lib/activity';
+import { getOrgName, setSetting } from '@/lib/settings';
+import { setThemeKey } from '@/lib/theme';
 import { fail, ok, type ActionResult } from '@/lib/action-result';
 
 function cleanName(raw: string): string {
@@ -91,6 +93,11 @@ export async function setAdminAction(userId: number, isAdmin: boolean): Promise<
   const admin = await requireAdmin();
   const target = db.select().from(users).where(eq(users.id, userId)).get();
   if (!target) return fail('That person is no longer on the board.');
+  // The buyer activated the board with this account; it is the one thing they
+  // can never accidentally lose.
+  if (target.isFounder && !isAdmin) {
+    return fail('The owner account stays an admin.');
+  }
   // Without this the shop can lock itself out of Supply Requests and History.
   if (!isAdmin && countOtherAdmins(userId) === 0) {
     return fail('Someone has to stay an admin.');
@@ -116,6 +123,9 @@ export async function archiveUserAction(userId: number): Promise<ActionResult> {
   const target = db.select().from(users).where(eq(users.id, userId)).get();
   if (!target) return fail('That person is no longer on the board.');
   if (target.id === admin.id) return fail("You can't remove yourself.");
+  if (target.isFounder) {
+    return fail("The owner account can't be removed.");
+  }
   if (target.isAdmin && countOtherAdmins(userId) === 0) {
     return fail('Someone has to stay an admin.');
   }
@@ -162,4 +172,39 @@ export async function changeOwnPinAction(
   const result = await changeOwnPin(me, currentPin, newPin, confirmPin);
   if (result.ok) revalidatePath('/settings');
   return result;
+}
+
+/** The business name shown across the board and on home-screen installs. */
+export async function setOrgNameAction(name: string): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const clean = name.trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (clean.length < 2) return fail('The name needs at least two characters.');
+  if (clean === getOrgName()) return ok;
+
+  setSetting('org.name', clean);
+  logActivity({
+    actorId: admin.id,
+    verb: 'board.renamed',
+    subjectType: 'setting',
+    subjectId: null,
+    summary: `${admin.name} renamed the board to “${clean}”`,
+  });
+  revalidatePath('/settings');
+  revalidatePath('/');
+  return ok;
+}
+
+/** The accent color every device sees — buttons, tabs, badges, rewards. */
+export async function setThemeAction(key: string): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  if (!setThemeKey(key)) return fail('That theme does not exist.');
+  logActivity({
+    actorId: admin.id,
+    verb: 'board.rethemed',
+    subjectType: 'setting',
+    subjectId: null,
+    summary: `${admin.name} changed the theme`,
+  });
+  revalidatePath('/', 'layout');
+  return ok;
 }

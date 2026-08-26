@@ -31,6 +31,7 @@ const selection = {
   completedByName: completer.name,
   declineReason: tasks.declineReason,
   recurrenceId: tasks.recurrenceId,
+  rewardCents: tasks.rewardCents,
   createdAt: tasks.createdAt,
 };
 
@@ -61,6 +62,7 @@ function toBoardTask(row: Row): BoardTask {
     completedBy: row.completedBy,
     completedByName: row.completedByName,
     declineReason: row.declineReason,
+    rewardCents: row.rewardCents,
     isRecurring: row.recurrenceId !== null,
     createdAt: row.createdAt,
   };

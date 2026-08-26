@@ -6,11 +6,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-sched-'));
-process.env.APEX_DB_PATH = path.join(tmp, 'verify.db');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tasq-sched-'));
+process.env.TASQ_DB_PATH = path.join(tmp, 'verify.db');
 process.env.SESSION_SECRET ??= 'x'.repeat(48);
 
-const { migrateAndSeed } = await import('../lib/db/migrate');
+const { initDatabase } = await import('../lib/db/migrate');
+const { seedTestUsers } = await import('./helpers/test-users.mts');
 const { db } = await import('../lib/db');
 const { users, tasks, recurrences } = await import('../lib/db/schema');
 const rec = await import('../lib/recurrences');
@@ -27,7 +28,8 @@ const check = (label: string, cond: boolean, detail = ''): void => {
 };
 const section = (n: string) => console.log(`\n${n}`);
 
-migrateAndSeed();
+initDatabase();
+seedTestUsers();
 const all = db.select().from(users).all();
 const chris = all.find((u) => u.name === 'Chris')!;
 const tony = all.find((u) => u.name === 'Tony')!;
@@ -41,6 +43,7 @@ const base = {
   weekdays: [1],
   dayOfMonth: null,
   spawnTime: '07:00',
+  rewardCents: null,
 };
 
 // 2026-05-04 is a Monday.

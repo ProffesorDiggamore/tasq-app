@@ -1,19 +1,42 @@
+import os from 'node:os';
 import { headers } from 'next/headers';
 import QRCode from 'qrcode';
+
+/**
+ * The QR must never encode localhost: the person scanning is always on a
+ * phone, and an admin setting phones up almost always browses from the server
+ * Mac itself. When the board was reached on localhost/127.0.0.1, substitute
+ * this machine's LAN address — the same one start.command prints.
+ */
+function lanUrl(): string | null {
+  const port = process.env.PORT?.trim() || '4744';
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const nic of list ?? []) {
+      if (nic.family === 'IPv4' && !nic.internal) return `http://${nic.address}:${port}`;
+    }
+  }
+  return null;
+}
 
 /**
  * A new employee should be able to install the board by pointing a camera at
  * this. The URL is whatever the server is actually being reached on, so the QR
  * is right whether you are on the Tailscale hostname or the shop LAN — unless
- * APEX_PUBLIC_URL pins it, which is what you want when an admin is setting a
+ * TASQ_PUBLIC_URL pins it, which is what you want when an admin is setting a
  * phone up over the LAN but the phone needs the off-site address.
  */
 export async function InstallCard() {
   const head = await headers();
-  const configured = process.env.APEX_PUBLIC_URL?.trim();
+  const configured = process.env.TASQ_PUBLIC_URL?.trim();
   const host = head.get('x-forwarded-host') ?? head.get('host') ?? 'localhost:4744';
   const proto = head.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
-  const url = configured && configured.length > 0 ? configured : `${proto}://${host}`;
+  const reachedLocally = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host);
+  const url =
+    configured && configured.length > 0
+      ? configured
+      : reachedLocally
+        ? (lanUrl() ?? `${proto}://${host}`)
+        : `${proto}://${host}`;
 
   const qr = await QRCode.toString(url, {
     type: 'svg',

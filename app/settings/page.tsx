@@ -10,6 +10,11 @@ import { currentUser } from '@/lib/auth/session';
 import { listActiveUsers, toPersonSummary } from '@/lib/users';
 import { listRecurrences } from '@/lib/recurrences';
 import { outstandingSupplyCount } from '@/lib/supplies';
+import { getOrgName } from '@/lib/settings';
+import { THEMES, getThemeKey } from '@/lib/theme';
+import pkg from '@/package.json';
+import { OrgNameCard } from '@/components/settings/OrgNameCard';
+import { ThemeCard } from '@/components/settings/ThemeCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,10 +29,16 @@ export default async function SettingsPage() {
         isAdmin: u.isAdmin,
         enrolled: u.pinHash !== null,
         isSelf: u.id === user.id,
+        isFounder: u.isFounder,
       }))
     : [];
 
   const links: SettingsLink[] = [
+    {
+      href: '/announce',
+      label: 'Announce',
+      hint: 'Send a push to one person or to everyone',
+    },
     {
       href: '/supplies',
       label: 'Supplies',
@@ -71,6 +82,24 @@ export default async function SettingsPage() {
         </div>
 
         <div className="mt-7">
+          <OrgNameCard name={getOrgName()} canEdit={user.isAdmin} />
+        </div>
+
+        {user.isAdmin ? (
+          <div className="mt-7">
+            <ThemeCard
+              current={getThemeKey()}
+              themes={Object.entries(THEMES).map(([key, t]) => ({
+                key,
+                label: t.label,
+                accent: t.accent,
+                ink: t.ink,
+              }))}
+            />
+          </div>
+        ) : null}
+
+        <div className="mt-7">
           <NotificationSettings />
         </div>
 
@@ -91,6 +120,13 @@ export default async function SettingsPage() {
             <PeopleManager people={people} />
           </div>
         ) : null}
+
+        <p
+          className="type-caption mt-10 text-center text-[var(--text-tertiary)]"
+          style={{ opacity: 0.6 }}
+        >
+          {getOrgName()} · v{pkg.version}
+        </p>
       </main>
     </>
   );

@@ -7,11 +7,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-tasks-'));
-process.env.APEX_DB_PATH = path.join(tmp, 'verify.db');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tasq-tasks-'));
+process.env.TASQ_DB_PATH = path.join(tmp, 'verify.db');
 process.env.SESSION_SECRET ??= 'x'.repeat(48);
 
-const { migrateAndSeed } = await import('../lib/db/migrate');
+const { initDatabase } = await import('../lib/db/migrate');
+const { seedTestUsers } = await import('./helpers/test-users.mts');
 const { db } = await import('../lib/db');
 const { users, tasks, activityLog } = await import('../lib/db/schema');
 const machine = await import('../lib/task-machine');
@@ -31,7 +32,8 @@ function section(name: string): void {
   console.log(`\n${name}`);
 }
 
-migrateAndSeed();
+initDatabase();
+seedTestUsers();
 
 const all = db.select().from(users).all();
 const chris = all.find((u) => u.name === 'Chris')!;
@@ -50,7 +52,7 @@ function makeTask(
 ): number {
   const result = machine.createTask(
     actor,
-    { title: 'Task', notes: '', assignedTo: null, isAsap: false, dueLocal: null, ...overrides },
+    { title: 'Task', notes: '', assignedTo: null, isAsap: false, dueLocal: null, rewardCents: null, ...overrides },
     now,
   );
   if (!result.ok || result.taskId === undefined) throw new Error('createTask failed');
@@ -73,6 +75,7 @@ const noTitle = machine.createTask(chris, {
   assignedTo: null,
   isAsap: false,
   dueLocal: null,
+  rewardCents: null,
 });
 check('a blank title is refused', !noTitle.ok);
 
@@ -82,6 +85,7 @@ const goneUser = machine.createTask(chris, {
   assignedTo: 9999,
   isAsap: false,
   dueLocal: null,
+  rewardCents: null,
 });
 check('assigning to nobody real is refused', !goneUser.ok);
 
@@ -163,8 +167,19 @@ check('the row survives', row(chrisTask) !== undefined);
 check('status is cancelled', row(chrisTask).status === 'cancelled');
 check('it leaves every board row', !board.upForGrabs().some((t) => t.id === chrisTask));
 
-const landonTask = makeTask(landon, { title: "Landon's errand" });
+// Creation is admin-only now, so "someone else" is a second admin. The
+// machine reads the actor it is handed, so promote the object directly.
+const landonAsAdmin = { ...landon, isAdmin: true };
+const landonTask = makeTask(landonAsAdmin, { title: "Landon's errand" });
 check('an admin can cancel what someone else created', machine.cancelTask(chris, landonTask).ok);
+check('a non-admin cannot post tasks', !machine.createTask(tony, {
+  title: 'Not allowed',
+  notes: '',
+  assignedTo: null,
+  isAsap: false,
+  dueLocal: null,
+  rewardCents: null,
+}).ok);
 
 const cancelDone = makeTask(chris, { title: 'Already finished' });
 machine.completeTask(chris, cancelDone);

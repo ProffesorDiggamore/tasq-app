@@ -26,9 +26,14 @@ export type ActivityVerb =
   | 'recurrence.paused'
   | 'recurrence.resumed'
   | 'task.updated'
-  | 'user.pin_changed';
+  | 'user.pin_changed'
+  | 'board.setup'
+  | 'board.renamed'
+  | 'board.rethemed'
+  | 'user.recovered'
+  | 'announcement.sent';
 
-export type SubjectType = 'task' | 'supply_request' | 'user' | 'recurrence';
+export type SubjectType = 'task' | 'supply_request' | 'user' | 'recurrence' | 'setting' | 'announcement';
 
 export interface LogEntry {
   /** Null when the scheduler, not a person, caused the event. */

@@ -11,11 +11,11 @@ const glyph = (scale) => {
   const c = 256;
   const s = (v) => c + (v - c) * scale;
   return `
-    <path d="M${s(168)} ${s(384)} L${s(256)} ${s(146)} L${s(344)} ${s(384)}"
-          stroke="#f5f5f7" stroke-width="${46 * scale}" fill="none"
-          stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M${s(203)} ${s(300)} H${s(309)}"
-          stroke="#ff9f0a" stroke-width="${38 * scale}"
+    <path d="M${s(140)} ${s(150)} H${s(372)}"
+          stroke="#f5f5f7" stroke-width="${52 * scale}" fill="none"
+          stroke-linecap="round"/>
+    <path d="M${s(256)} ${s(150)} V${s(330)} Q${s(256)} ${s(388)} ${s(318)} ${s(392)} L${s(356)} ${s(392)}"
+          stroke="#ff9f0a" stroke-width="${52 * scale}" fill="none"
           stroke-linecap="round"/>`;
 };
 

@@ -11,7 +11,7 @@ export interface SessionData {
   issuedAt?: number;
 }
 
-export const SESSION_COOKIE = 'apex_board_session';
+export const SESSION_COOKIE = 'tasq_board_session';
 export const SESSION_TTL_SECONDS = 90 * 24 * 60 * 60;
 /** Re-issue the cookie once it is a week old so a home-screen icon never expires. */
 export const SESSION_REFRESH_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
@@ -32,7 +32,7 @@ export function sessionOptions(): SessionOptions {
       maxAge: SESSION_TTL_SECONDS,
       // Off by default: the LAN fallback runs over plain HTTP, and a Secure
       // cookie would never survive it. See the README.
-      secure: process.env.APEX_COOKIE_SECURE === 'true',
+      secure: process.env.TASQ_COOKIE_SECURE === 'true',
     },
   };
 }

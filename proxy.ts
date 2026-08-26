@@ -7,7 +7,7 @@ import {
   type SessionData,
 } from '@/lib/auth/session.config';
 
-const PUBLIC_PATHS = ['/login'];
+const PUBLIC_PATHS = ['/login', '/setup'];
 
 /**
  * Two jobs, both cheap enough to run before every request: bounce anonymous requests to
@@ -29,7 +29,7 @@ export async function proxy(req: NextRequest) {
       sameSite: 'lax',
       path: '/',
       maxAge: SESSION_TTL_SECONDS,
-      secure: process.env.APEX_COOKIE_SECURE === 'true',
+      secure: process.env.TASQ_COOKIE_SECURE === 'true',
     },
   });
 

@@ -130,6 +130,7 @@ export function spawnDueRecurrences(now: number = Date.now()): SpawnReport {
         createdBy: rec.createdBy,
         assignedTo,
         isAsap: rec.isAsap,
+        rewardCents: rec.rewardCents,
         status: 'pending',
         recurrenceId: rec.id,
         createdAt: now,
@@ -210,6 +211,7 @@ export function createRecurrence(
       createdBy: actor.id,
       defaultAssignee: input.defaultAssignee,
       isAsap: input.isAsap,
+      rewardCents: input.rewardCents,
       pattern: input.pattern,
       weekdays: input.pattern === 'weekly' ? input.weekdays.sort().join(',') : null,
       dayOfMonth: input.pattern === 'monthly' ? input.dayOfMonth : null,
@@ -294,6 +296,7 @@ export function updateRecurrence(
       weekdays: input.pattern === 'weekly' ? [...input.weekdays].sort().join(',') : null,
       dayOfMonth: input.pattern === 'monthly' ? input.dayOfMonth : null,
       spawnTime: input.spawnTime,
+      rewardCents: input.rewardCents,
     })
     .where(eq(recurrences.id, recurrenceId))
     .run();
@@ -443,6 +446,7 @@ export function listRecurrences(): RecurrenceSummary[] {
       defaultAssignee: recurrences.defaultAssignee,
       assigneeName: users.name,
       isAsap: recurrences.isAsap,
+      rewardCents: recurrences.rewardCents,
       lastSpawnedOn: recurrences.lastSpawnedOn,
     })
     .from(recurrences)

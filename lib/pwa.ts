@@ -54,6 +54,6 @@ export function markDone(key: string): void {
   localStorage.setItem(key, '99');
 }
 
-export const INSTALL_HINT_KEY = 'apex.installHint';
-export const PUSH_HINT_KEY = 'apex.pushHint';
+export const INSTALL_HINT_KEY = 'tasq.installHint';
+export const PUSH_HINT_KEY = 'tasq.pushHint';
 export const MAX_HINTS = 2;

@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 /* ==========================================================================
-   Apex Board — design tokens
+   Tasq — design tokens
 
    Dark is the default because this gets read at 6am in a shop bay and on a wall
    screen; a light system setting flips it. Every colour is a token so the two

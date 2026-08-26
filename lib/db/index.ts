@@ -7,7 +7,7 @@ import { DATA_DIR, DB_PATH } from '@/lib/paths';
 
 declare global {
   // Reused across Next's dev-mode module reloads so we never open the file twice.
-  var __apexSqlite: Database.Database | undefined;
+  var __tasqSqlite: Database.Database | undefined;
 }
 
 function openDatabase(): Database.Database {
@@ -26,14 +26,28 @@ function openDatabase(): Database.Database {
 
   // WAL keeps readers from blocking the writer — five people on phones plus the
   // scheduler all touch this file, and the nightly backup reads it live.
-  conn.pragma('journal_mode = WAL');
+  //
+  // Switching into WAL needs a brief exclusive lock and, unlike ordinary
+  // statements, SQLite can hand back SQLITE_BUSY for the pragma itself without
+  // honouring busy_timeout when several fresh connections race to create the
+  // file (a production build collects page data one worker per core). Retry
+  // instead: whoever loses waits and tries again, and every attempt is
+  // idempotent once the file is already in WAL.
+  for (let attempt = 0; ; attempt += 1) {
+    const mode = conn.pragma('journal_mode = WAL', { simple: true });
+    if (mode === 'wal') break;
+    if (attempt >= 40) {
+      throw new Error(`Could not switch ${DB_PATH} into WAL mode (last mode: ${mode})`);
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
   conn.pragma('synchronous = NORMAL');
   conn.pragma('foreign_keys = ON');
   return conn;
 }
 
-export const sqlite: Database.Database = globalThis.__apexSqlite ?? openDatabase();
-if (process.env.NODE_ENV !== 'production') globalThis.__apexSqlite = sqlite;
+export const sqlite: Database.Database = globalThis.__tasqSqlite ?? openDatabase();
+if (process.env.NODE_ENV !== 'production') globalThis.__tasqSqlite = sqlite;
 
 export const db = drizzle(sqlite, { schema });
 export { schema };

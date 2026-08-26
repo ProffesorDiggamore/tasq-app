@@ -6,11 +6,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-edit-'));
-process.env.APEX_DB_PATH = path.join(tmp, 'verify.db');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tasq-edit-'));
+process.env.TASQ_DB_PATH = path.join(tmp, 'verify.db');
 process.env.SESSION_SECRET ??= 'x'.repeat(48);
 
-const { migrateAndSeed } = await import('../lib/db/migrate');
+const { initDatabase } = await import('../lib/db/migrate');
+const { seedTestUsers } = await import('./helpers/test-users.mts');
 const { db } = await import('../lib/db');
 const { users, tasks, recurrences } = await import('../lib/db/schema');
 const { hashPin, verifyPin } = await import('../lib/auth/pin');
@@ -31,7 +32,8 @@ const check = (label: string, cond: boolean, detail = ''): void => {
 };
 const section = (n: string) => console.log(`\n${n}`);
 
-migrateAndSeed();
+initDatabase();
+seedTestUsers();
 const all = db.select().from(users).all();
 const chris = all.find((u) => u.name === 'Chris')!;
 const tony = all.find((u) => u.name === 'Tony')!;
@@ -110,6 +112,7 @@ const made = machine.createTask(chris, {
   assignedTo: tony.id,
   isAsap: false,
   dueLocal: null,
+  rewardCents: null,
 });
 const taskId = made.taskId!;
 machine.acceptTask(tony, taskId);
@@ -120,6 +123,7 @@ const outsider = machine.updateTask(shelly, taskId, {
   assignedTo: null,
   isAsap: false,
   dueLocal: null,
+  rewardCents: null,
 });
 check('a bystander cannot edit it', !outsider.ok);
 
@@ -129,6 +133,7 @@ const renamed = machine.updateTask(chris, taskId, {
   assignedTo: tony.id,
   isAsap: false,
   dueLocal: null,
+  rewardCents: null,
 });
 check('the creator can edit it', renamed.ok);
 check('the title changed', taskRow(taskId).title === 'Grease the skid steer and the loader');
@@ -145,6 +150,7 @@ const reassigned = machine.updateTask(chris, taskId, {
   assignedTo: shelly.id,
   isAsap: false,
   dueLocal: null,
+  rewardCents: null,
 });
 check('reassigning works', reassigned.ok);
 check('the new owner has it', taskRow(taskId).assignedTo === shelly.id);
@@ -158,6 +164,7 @@ const toPool = machine.updateTask(chris, taskId, {
   assignedTo: null,
   isAsap: false,
   dueLocal: null,
+  rewardCents: null,
 });
 check('it can go back to the pool', toPool.ok && taskRow(taskId).assignedTo === null);
 check('as pending', taskRow(taskId).status === 'pending');
@@ -169,6 +176,7 @@ const madeAsap = machine.updateTask(chris, taskId, {
   assignedTo: null,
   isAsap: true,
   dueLocal: null,
+  rewardCents: null,
 });
 check('turning ASAP on tells everyone', audiences(madeAsap.notify).includes('everyone'));
 const editedAgain = machine.updateTask(chris, taskId, {
@@ -177,6 +185,7 @@ const editedAgain = machine.updateTask(chris, taskId, {
   assignedTo: null,
   isAsap: true,
   dueLocal: null,
+  rewardCents: null,
 });
 check('a later edit does not re-alert everyone', (editedAgain.notify ?? []).length === 0);
 
@@ -188,6 +197,7 @@ const withDue = machine.updateTask(chris, taskId, {
   assignedTo: null,
   isAsap: true,
   dueLocal: '2027-01-05T09:00',
+  rewardCents: null,
 });
 check('a due time can be added', withDue.ok && taskRow(taskId).dueAt === future);
 db.update(tasks).set({ overdueNotifiedAt: Date.now() }).where(eq(tasks.id, taskId)).run();
@@ -197,6 +207,7 @@ machine.updateTask(chris, taskId, {
   assignedTo: null,
   isAsap: true,
   dueLocal: '2027-02-05T09:00',
+  rewardCents: null,
 });
 check(
   'pushing the due time out re-arms the overdue nudge',
@@ -208,6 +219,7 @@ const cleared = machine.updateTask(chris, taskId, {
   assignedTo: null,
   isAsap: true,
   dueLocal: null,
+  rewardCents: null,
 });
 check('and it can be cleared', cleared.ok && taskRow(taskId).dueAt === null);
 
@@ -221,6 +233,7 @@ check(
     assignedTo: null,
     isAsap: false,
     dueLocal: null,
+    rewardCents: null,
   }).ok,
 );
 
@@ -236,6 +249,7 @@ const rule = rec.createRecurrence(
     weekdays: [1],
     dayOfMonth: null,
     spawnTime: '07:00',
+    rewardCents: null,
   },
   localWallClockToUtc('2026-05-04', '06:00'),
 );
@@ -253,6 +267,7 @@ const edited = rec.updateRecurrence(chris, ruleId, {
   weekdays: [2, 4],
   dayOfMonth: null,
   spawnTime: '08:30',
+  rewardCents: null,
 });
 check('the rule can be edited', edited.ok);
 const ruleRow = db.select().from(recurrences).where(eq(recurrences.id, ruleId)).get()!;
@@ -294,6 +309,7 @@ check('an invalid edit is refused', !rec.updateRecurrence(chris, ruleId, {
   weekdays: [2],
   dayOfMonth: null,
   spawnTime: '08:30',
+  rewardCents: null,
 }).ok);
 
 check('it can be deleted', rec.deleteRecurrence(chris, ruleId).ok);

@@ -1,5 +1,5 @@
 /**
- * Apex Board service worker.
+ * Tasq service worker.
  *
  * Two jobs: keep the app shell openable when the shop internet drops, and
  * receive Web Push. It deliberately does not try to cache board data — a stale
@@ -9,7 +9,7 @@
  * Bump CACHE when the offline page or the precache list changes; hashed Next
  * assets never need it.
  */
-const CACHE = 'apex-board-v1';
+const CACHE = 'tasq-v1';
 const OFFLINE_URL = '/offline';
 const PRECACHE = [OFFLINE_URL, '/icons/icon-192.png', '/icons/icon-512.png'];
 
@@ -69,10 +69,10 @@ self.addEventListener('push', (event) => {
   try {
     payload = event.data ? event.data.json() : {};
   } catch {
-    payload = { title: 'Apex Board', body: event.data ? event.data.text() : '' };
+    payload = { title: 'Tasq', body: event.data ? event.data.text() : '' };
   }
 
-  const title = payload.title || 'Apex Board';
+  const title = payload.title || 'Tasq';
   event.waitUntil(
     self.registration.showNotification(title, {
       body: payload.body || '',

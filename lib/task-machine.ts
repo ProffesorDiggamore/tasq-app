@@ -56,11 +56,29 @@ function clean(value: string, max: number): string {
   return value.trim().slice(0, max);
 }
 
+/** Rewards are whole dollars up to $500; anything else is no bounty at all. */
+function normalizeReward(cents: number | null | undefined): number | null {
+  if (cents === null || cents === undefined || !Number.isFinite(cents)) return null;
+  const whole = Math.floor(cents);
+  if (whole <= 0 || whole > 50_000) return null;
+  return whole;
+}
+
+function rewardSuffix(cents: number | null): string {
+  return cents ? ` for $${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}` : '';
+}
+
 export function createTask(
   actor: User,
   input: NewTaskInput,
   now: number = Date.now(),
 ): MachineResult & { taskId?: number } {
+  // Posting work is the owner's job: rewards are money, and money is an
+  // admin decision. Everyone else claims, does, and finishes.
+  if (!actor.isAdmin) {
+    return { ok: false, reason: 'invalid', message: 'Only admins can add tasks.' };
+  }
+  const rewardCents = normalizeReward(input.rewardCents);
   const title = clean(input.title, TITLE_MAX);
   if (title.length === 0) return { ok: false, reason: 'invalid', message: 'Give it a title.' };
   const notes = clean(input.notes, NOTES_MAX) || null;
@@ -96,6 +114,7 @@ export function createTask(
       assignedTo,
       isAsap: input.isAsap,
       dueAt,
+      rewardCents,
       status: 'pending',
       createdAt: now,
       updatedAt: now,
@@ -111,10 +130,12 @@ export function createTask(
       subjectId: created.id,
       summary:
         assignedTo === null
-          ? `${actor.name} put "${title}" up for grabs${input.isAsap ? ' (ASAP)' : ''}`
-          : `${actor.name} assigned "${title}" to ${nameOf(assignedTo)}${
+          ? `${actor.name} put "${title}" up for grabs${rewardSuffix(rewardCents)}${
               input.isAsap ? ' (ASAP)' : ''
-            }`,
+            }`
+          : `${actor.name} assigned "${title}" to ${nameOf(assignedTo)}${rewardSuffix(
+              rewardCents,
+            )}${input.isAsap ? ' (ASAP)' : ''}`,
     },
     now,
   );
@@ -215,6 +236,7 @@ export function updateTask(
       assignedTo,
       isAsap: input.isAsap,
       dueAt,
+      rewardCents: normalizeReward(input.rewardCents),
       status,
       acceptedAt: reassigned ? null : existing.acceptedAt,
       claimedAt: reassigned ? null : existing.claimedAt,
@@ -236,6 +258,14 @@ export function updateTask(
     changes.push(input.isAsap ? 'marked it ASAP' : 'took ASAP off it');
   }
   if (dueAt !== existing.dueAt) changes.push(dueAt === null ? 'cleared the due time' : 'changed the due time');
+  {
+    const nextReward = normalizeReward(input.rewardCents);
+    const prevSuffix = rewardSuffix(existing.rewardCents ?? null);
+    const nextSuffix = rewardSuffix(nextReward);
+    if (prevSuffix !== nextSuffix) {
+      changes.push(nextReward === null ? `took the reward off it` : `set the reward to ${nextSuffix.replace(' for ', '')}`);
+    }
+  }
 
   logActivity(
     {

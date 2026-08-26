@@ -9,6 +9,7 @@ import type { BoardTask, NewTaskInput } from '@/lib/board-types';
 import type { PersonSummary } from '@/lib/auth/results';
 import { SPRING_SHEET } from '@/lib/motion';
 import { toLocalInputValue } from '@/lib/time';
+import { parseRewardInput } from '@/components/board/NewTaskForm';
 
 /** Editing a task in place, inside the sheet that was already showing it. */
 export function TaskEditor({
@@ -30,6 +31,9 @@ export function TaskEditor({
   const [notes, setNotes] = useState(task.notes ?? '');
   const [assignedTo, setAssignedTo] = useState<number | null>(task.assignedTo);
   const [isAsap, setIsAsap] = useState(task.isAsap);
+  const [reward, setReward] = useState(
+    task.rewardCents === null ? '' : String(task.rewardCents / 100),
+  );
   const [hasDue, setHasDue] = useState(task.dueAt !== null);
   const [dueLocal, setDueLocal] = useState(
     task.dueAt !== null ? toLocalInputValue(task.dueAt) : toLocalInputValue(Date.now() + 3600_000),
@@ -116,6 +120,27 @@ export function TaskEditor({
         </AnimatePresence>
       </div>
 
+      <div>
+        <span className="type-label block text-[var(--text-tertiary)]">Cash reward</span>
+        <div className="mt-2 flex items-center gap-2">
+          <span
+            className="type-headline px-1"
+            style={{ color: reward ? 'var(--accent)' : 'var(--text-tertiary)' }}
+          >
+            $
+          </span>
+          <input
+            value={reward}
+            onChange={(e) => setReward(e.target.value.replace(/[^0-9.]/g, '').slice(0, 7))}
+            inputMode="decimal"
+            placeholder="0"
+            aria-label="Cash reward in dollars"
+            className="tap-target type-headline w-28 rounded-[var(--radius-control)] px-3.5 py-2"
+            style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
+          />
+        </div>
+      </div>
+
       <SwitchRow
         label="ASAP"
         hint="Shows on the shared ASAP row for everyone."
@@ -168,6 +193,7 @@ export function TaskEditor({
               assignedTo,
               isAsap,
               dueLocal: hasDue ? dueLocal : null,
+              rewardCents: parseRewardInput(reward),
             })
           }
         >

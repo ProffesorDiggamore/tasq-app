@@ -23,6 +23,7 @@ export interface PersonRow {
   isAdmin: boolean;
   enrolled: boolean;
   isSelf: boolean;
+  isFounder: boolean;
 }
 
 export function PeopleManager({ people }: { people: PersonRow[] }) {
@@ -74,6 +75,17 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
                     {p.isSelf ? (
                       <span className="type-caption ml-2 text-[var(--text-tertiary)]">you</span>
                     ) : null}
+                    {p.isFounder ? (
+                      <span
+                        className="type-caption ml-2 rounded-full px-2 py-0.5"
+                        style={{
+                          background: 'color-mix(in srgb, var(--accent) 18%, transparent)',
+                          color: 'var(--accent)',
+                        }}
+                      >
+                        owner
+                      </span>
+                    ) : null}
                   </span>
                   <span className="type-caption block text-[var(--text-tertiary)]">
                     {p.isAdmin ? 'Admin' : 'Crew'} · {p.enrolled ? 'PIN set' : 'No PIN yet'}
@@ -111,11 +123,15 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
 
                       <Row
                         label="Admin"
-                        hint="Sees Supply Requests and full History."
+                        hint={
+                          p.isFounder
+                            ? 'The owner is always an admin.'
+                            : 'Sees Supply Requests and full History.'
+                        }
                       >
                         <Toggle
                           checked={p.isAdmin}
-                          disabled={pending}
+                          disabled={pending || p.isFounder}
                           label={`Admin access for ${p.name}`}
                           onChange={(v) => run(() => setAdminAction(p.id, v))}
                         />
@@ -133,7 +149,7 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
                           {confirming === `pin-${p.id}` ? 'Tap again to reset PIN' : 'Reset PIN'}
                         </Button>
 
-                        {p.isSelf ? null : (
+                        {!p.isSelf && !p.isFounder ? (
                           <Button
                             tone="danger"
                             disabled={pending}
@@ -146,7 +162,7 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
                               ? 'Tap again to remove'
                               : 'Remove from board'}
                           </Button>
-                        )}
+                        ) : null}
                       </div>
 
                       <p className="type-caption text-[var(--text-tertiary)]">

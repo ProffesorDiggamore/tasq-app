@@ -48,7 +48,7 @@ export function InstallSheet() {
           className="material-sheet fixed inset-x-3 z-40 rounded-[var(--radius-sheet)] p-4"
           style={{ bottom: 'calc(env(safe-area-inset-bottom) + 5.75rem)' }}
           role="dialog"
-          aria-label="Add Apex Board to your home screen"
+          aria-label="Add Tasq to your home screen"
         >
           <h2 className="type-headline">Put this on your home screen</h2>
           <p className="type-callout mt-1.5 text-[var(--text-secondary)]">

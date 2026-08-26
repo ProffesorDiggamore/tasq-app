@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs the Apex Board server and nightly backup as launchd jobs.
+# Installs the Tasq server and nightly backup as launchd jobs.
 #
 #   sudo setup/install.sh
 #
@@ -7,7 +7,7 @@
 # machine — secrets, build, sleep settings, Tailscale — and calls this.
 #
 # Re-running is safe: it replaces the installed jobs with the current templates.
-# Set APEX_ASSUME_YES=1 to skip the one prompt (bootstrap.sh does this).
+# Set TASQ_ASSUME_YES=1 to skip the one prompt (bootstrap.sh does this).
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -37,10 +37,10 @@ case "$APP_DIR" in
     echo "WARNING: $APP_DIR is inside a TCC-protected folder."
     echo "A LaunchDaemon cannot read Documents, Desktop or Downloads, and the"
     echo "server will fail with EPERM. Move the app somewhere like"
-    echo "/Users/Shared/apex-board and re-run this script."
+    echo "/Users/Shared/tasq and re-run this script."
     echo
-    if [ "${APEX_ASSUME_YES:-0}" = "1" ]; then
-      echo "APEX_ASSUME_YES is set — continuing anyway."
+    if [ "${TASQ_ASSUME_YES:-0}" = "1" ]; then
+      echo "TASQ_ASSUME_YES is set — continuing anyway."
     else
       read -r -p "Continue anyway? [y/N] " reply
       [ "$reply" = "y" ] || exit 1
@@ -61,7 +61,7 @@ render() {
 }
 
 for job in server backup; do
-  LABEL="com.apexboard.$job"
+  LABEL="com.tasq.$job"
   TARGET="/Library/LaunchDaemons/$LABEL.plist"
 
   # bootout first so a re-run replaces cleanly rather than erroring.
@@ -98,9 +98,9 @@ for job in server backup; do
   echo "installed $LABEL"
 done
 
-launchctl kickstart -k system/com.apexboard.server
+launchctl kickstart -k system/com.tasq.server
 
 echo
 echo "Done. Check it came up:"
-echo "  launchctl print system/com.apexboard.server | head -20"
+echo "  launchctl print system/com.tasq.server | head -20"
 echo "  tail -f $APP_DIR/logs/server.log"

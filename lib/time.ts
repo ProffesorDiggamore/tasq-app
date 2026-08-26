@@ -1,12 +1,20 @@
 /**
- * Everything is stored as Unix ms UTC and displayed in shop time. Both shops
- * are in Idaho, so the zone is fixed rather than read from the device — a phone
- * that travels must not renumber the board.
+ * Everything is stored as Unix ms UTC and displayed in shop time. The zone is
+ * fixed per deployment rather than read from the device — a phone that travels
+ * must not renumber the board. Set NEXT_PUBLIC_TASQ_TIME_ZONE in .env.local
+ * before building to run a shop outside the default; the NEXT_PUBLIC_ prefix
+ * is what lets the client components that format times inline the same value.
  */
-export const SHOP_TIME_ZONE = 'America/Boise';
+export const SHOP_TIME_ZONE = process.env.NEXT_PUBLIC_TASQ_TIME_ZONE?.trim() || 'America/Boise';
 
-/** The board clears completed tasks at 3am local, not midnight — closing shifts run late. */
-export const BOARD_RESET_HOUR = 3;
+/**
+ * The board clears completed tasks at 3am local by default — closing shifts
+ * run late. NEXT_PUBLIC_TASQ_RESET_HOUR moves it (0-23).
+ */
+export const BOARD_RESET_HOUR = (() => {
+  const n = Number(process.env.NEXT_PUBLIC_TASQ_RESET_HOUR);
+  return Number.isInteger(n) && n >= 0 && n <= 23 ? n : 3;
+})();
 
 const dateParts = new Intl.DateTimeFormat('en-CA', {
   timeZone: SHOP_TIME_ZONE,

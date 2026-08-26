@@ -104,6 +104,19 @@ function TaskCardImpl({
           {task.isRecurring ? (
             <span className="type-caption text-[var(--text-tertiary)]">Repeating</span>
           ) : null}
+          {task.rewardCents !== null ? (
+            <motion.span
+              key={task.rewardCents}
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={SPRING_ENTER}
+              className="type-label rounded-[var(--radius-pill)] px-2 py-0.5"
+              style={{ background: 'color-mix(in srgb, var(--success) 22%, transparent)', color: 'var(--success)' }}
+              aria-label={`Pays $${(task.rewardCents / 100).toFixed(task.rewardCents % 100 === 0 ? 0 : 2)}`}
+            >
+              ${(task.rewardCents / 100).toFixed(task.rewardCents % 100 === 0 ? 0 : 2)}
+            </motion.span>
+          ) : null}
           {due ? (
             <span
               className="type-caption tabular ml-auto"

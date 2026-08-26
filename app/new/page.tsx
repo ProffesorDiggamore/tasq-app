@@ -9,6 +9,8 @@ export const dynamic = 'force-dynamic';
 export default async function NewTaskPage() {
   const user = await currentUser();
   if (!user) redirect('/login');
+  // Posting work — and especially posting a cash reward — is an admin act.
+  if (!user.isAdmin) redirect('/');
 
   const people = listActiveUsers().map(toPersonSummary);
 

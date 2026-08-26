@@ -12,7 +12,7 @@
 #
 set -euo pipefail
 
-TARGET="/Users/whoslandon/Documents/Dev & Code/Coding Scripts/All Apex/apex-board"
+TARGET="/Users/whoslandon/Documents/Dev & Code/Coding Scripts/All Tasq/tasq"
 PORT=4744
 PHASE="${1:-all}"
 
@@ -50,7 +50,7 @@ if [ "$PHASE" = "all" ]; then
   step "Stopping the background service"
   info "It cannot run from Documents anyway — macOS blocks that."
   for job in server backup; do
-    LABEL="com.apexboard.$job"
+    LABEL="com.tasq.$job"
     sudo launchctl bootout "system/$LABEL" 2>/dev/null || true
     sudo rm -f "/Library/LaunchDaemons/$LABEL.plist"
     ok "removed $LABEL"
@@ -146,12 +146,12 @@ if [ -n "$LAN" ]; then
 fi
 
 if [ -n "$FUNNEL_URL" ]; then
-  set_env APEX_PUBLIC_URL "$FUNNEL_URL" "$APP_DIR"
+  set_env TASQ_PUBLIC_URL "$FUNNEL_URL" "$APP_DIR"
   ok "Phones will be pointed at $FUNNEL_URL"
 elif [ -n "$LAN" ]; then
-  set_env APEX_PUBLIC_URL "http://$LAN:$PORT" "$APP_DIR"
+  set_env TASQ_PUBLIC_URL "http://$LAN:$PORT" "$APP_DIR"
 fi
-[ -n "$ORIGINS" ] && { set_env APEX_ALLOWED_ORIGINS "$ORIGINS" "$APP_DIR"; ok "Accepting requests from: $ORIGINS"; }
+[ -n "$ORIGINS" ] && { set_env TASQ_ALLOWED_ORIGINS "$ORIGINS" "$APP_DIR"; ok "Accepting requests from: $ORIGINS"; }
 
 printf '\n%s\n\n' "${BOLD}${GREEN}Done.${RESET}"
 echo "  The board now lives at:"

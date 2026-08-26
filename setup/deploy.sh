@@ -32,8 +32,8 @@ echo "==> Checking the logic still holds"
 npm run verify
 
 echo "==> Restarting the service"
-if launchctl print system/com.apexboard.server >/dev/null 2>&1; then
-  sudo launchctl kickstart -k system/com.apexboard.server
+if launchctl print system/com.tasq.server >/dev/null 2>&1; then
+  sudo launchctl kickstart -k system/com.tasq.server
   echo "    restarted"
 else
   echo "    service is not installed — run setup/install.sh"

@@ -8,7 +8,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.apexboard.backup</string>
+    <string>com.tasq.backup</string>
 
     <key>ProgramArguments</key>
     <array>
@@ -27,7 +27,7 @@
     <dict>
         <key>PATH</key>
         <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
-        <key>APEX_ROOT</key>
+        <key>TASQ_ROOT</key>
         <string>__APP_DIR__</string>
     </dict>
 

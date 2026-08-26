@@ -14,8 +14,8 @@ import { execFileSync } from 'node:child_process';
 import { createECDH, randomBytes } from 'node:crypto';
 import webpush from 'web-push';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-push-'));
-process.env.APEX_DB_PATH = path.join(tmp, 'verify.db');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tasq-push-'));
+process.env.TASQ_DB_PATH = path.join(tmp, 'verify.db');
 process.env.SESSION_SECRET ??= 'x'.repeat(48);
 
 // web-push refuses to talk to a plain-HTTP endpoint, which is correct — every
@@ -37,7 +37,8 @@ process.env.VAPID_PUBLIC_KEY = vapid.publicKey;
 process.env.VAPID_PRIVATE_KEY = vapid.privateKey;
 process.env.VAPID_SUBJECT = 'mailto:verify@example.com';
 
-const { migrateAndSeed } = await import('../lib/db/migrate');
+const { initDatabase } = await import('../lib/db/migrate');
+const { seedTestUsers } = await import('./helpers/test-users.mts');
 const { db } = await import('../lib/db');
 const { users, pushSubscriptions } = await import('../lib/db/schema');
 const notify = await import('../lib/notify');
@@ -96,7 +97,8 @@ function makeSubscription(pathname: string) {
   };
 }
 
-migrateAndSeed();
+initDatabase();
+seedTestUsers();
 const all = db.select().from(users).all();
 const chris = all.find((u) => u.name === 'Chris')!;
 const tony = all.find((u) => u.name === 'Tony')!;

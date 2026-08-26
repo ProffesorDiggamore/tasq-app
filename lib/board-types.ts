@@ -17,6 +17,8 @@ export interface BoardTask {
   completedByName: string | null;
   declineReason: string | null;
   isRecurring: boolean;
+  /** Bounty in whole cents; null means no cash value. */
+  rewardCents: number | null;
   createdAt: number;
 }
 
@@ -50,6 +52,8 @@ export interface NewTaskInput {
   isAsap: boolean;
   /** Shop-local wall clock, "YYYY-MM-DDTHH:MM", exactly as the input gives it. */
   dueLocal: string | null;
+  /** Bounty in whole dollars-and-cents the completer pockets. */
+  rewardCents: number | null;
 }
 
 export type RecurrencePatternInput = 'daily' | 'weekly' | 'monthly';
@@ -67,6 +71,7 @@ export interface RecurrenceInput {
   dayOfMonth: number | null;
   /** Shop-local time of day the instance appears, "HH:MM". */
   spawnTime: string;
+  rewardCents: number | null;
 }
 
 export interface RecurrenceSummary {
@@ -81,6 +86,7 @@ export interface RecurrenceSummary {
   defaultAssignee: number | null;
   assigneeName: string | null;
   isAsap: boolean;
+  rewardCents: number | null;
   lastSpawnedOn: string | null;
   /** Rendered server-side so the list reads the same everywhere. */
   schedule: string;

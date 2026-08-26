@@ -4,6 +4,7 @@ import { Board } from '@/components/board/Board';
 import { currentUser } from '@/lib/auth/session';
 import { loadBoard } from '@/lib/tasks';
 import { listActiveUsers, toPersonSummary } from '@/lib/users';
+import { getOrgName } from '@/lib/settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +29,7 @@ export default async function BoardPage({
         userId={user.id}
         userName={user.name}
         isAdmin={user.isAdmin}
-        title="Apex Board"
+        title={getOrgName()}
       />
       <Board
         board={board}

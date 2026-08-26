@@ -4,5 +4,5 @@ export default {
   schema: './lib/db/schema.ts',
   out: './drizzle',
   dialect: 'sqlite',
-  dbCredentials: { url: './data/apex.db' },
+  dbCredentials: { url: './data/tasq.db' },
 } satisfies Config;

@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
 // The board is reached over the Tailscale Funnel hostname and over a bare LAN
 // IP, neither of which Next can infer. Only opt into the setting when those
 // origins are actually configured, so a plain localhost run stays on defaults.
-const extraOrigins = (process.env.APEX_ALLOWED_ORIGINS ?? '')
+const extraOrigins = (process.env.TASQ_ALLOWED_ORIGINS ?? '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);

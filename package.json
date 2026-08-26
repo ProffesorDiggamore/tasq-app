@@ -1,6 +1,6 @@
 {
-  "name": "apex-board",
-  "version": "0.1.0",
+  "name": "tasq",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev --port 4744",
@@ -9,8 +9,10 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "verify": "npm run verify:auth && npm run verify:tasks && npm run verify:scheduler && npm run verify:notify && npm run verify:push && npm run verify:editing && npm run verify:setup",
+    "recover": "NODE_OPTIONS=--conditions=react-server tsx scripts/recover.mts",
+    "verify": "npm run verify:auth && npm run verify:onboarding && npm run verify:tasks && npm run verify:scheduler && npm run verify:notify && npm run verify:push && npm run verify:editing && npm run verify:setup",
     "verify:auth": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-auth.mts",
+    "verify:onboarding": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-onboarding.mts",
     "verify:tasks": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-tasks.mts",
     "verify:scheduler": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-scheduler.mts",
     "verify:notify": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-notify.mts",

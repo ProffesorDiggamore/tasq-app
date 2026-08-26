@@ -43,7 +43,7 @@ echo
 echo "launchd job definitions"
 for f in "$ROOT"/setup/*.plist; do
   tmp="$(mktemp)"
-  sed -e 's|__APP_DIR__|/Users/Shared/apex-board|g' \
+  sed -e 's|__APP_DIR__|/Users/Shared/tasq|g' \
       -e 's|__RUN_USER__|shopuser|g' \
       -e 's|__NODE_DIR__|/opt/homebrew/bin|g' "$f" > "$tmp"
   LABEL="$(basename "$f") is a valid plist once filled in"
@@ -74,10 +74,10 @@ check "never duplicates a key" "$(grep -c '^SESSION_SECRET=' "$APP_DIR/.env.loca
 
 set_env VAPID_SUBJECT "mailto:chris@example.com"
 check "keeps a colon intact" "$(env_value VAPID_SUBJECT)" "mailto:chris@example.com"
-set_env APEX_PUBLIC_URL "https://shop-mac.tail1234.ts.net"
-check "keeps a URL intact" "$(env_value APEX_PUBLIC_URL)" "https://shop-mac.tail1234.ts.net"
-set_env APEX_ALLOWED_ORIGINS "shop-mac.ts.net,192.168.1.50:4744"
-check "keeps commas and ports intact" "$(env_value APEX_ALLOWED_ORIGINS)" "shop-mac.ts.net,192.168.1.50:4744"
+set_env TASQ_PUBLIC_URL "https://shop-mac.tail1234.ts.net"
+check "keeps a URL intact" "$(env_value TASQ_PUBLIC_URL)" "https://shop-mac.tail1234.ts.net"
+set_env TASQ_ALLOWED_ORIGINS "shop-mac.ts.net,192.168.1.50:4744"
+check "keeps commas and ports intact" "$(env_value TASQ_ALLOWED_ORIGINS)" "shop-mac.ts.net,192.168.1.50:4744"
 set_env SESSION_SECRET 'a+b/c=d_e-f'
 check "keeps base64 punctuation intact" "$(env_value SESSION_SECRET)" 'a+b/c=d_e-f'
 

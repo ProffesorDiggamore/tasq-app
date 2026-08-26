@@ -1,17 +1,16 @@
 /**
  * Exercises the authentication rules against a throwaway database.
  *   npx tsx scripts/verify-auth.ts
- * Nothing here touches data/apex.db — APEX_DB_PATH points somewhere temporary.
+ * Nothing here touches data/tasq.db — TASQ_DB_PATH points somewhere temporary.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-verify-'));
-process.env.APEX_DB_PATH = path.join(tmp, 'verify.db');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tasq-verify-'));
+process.env.TASQ_DB_PATH = path.join(tmp, 'verify.db');
 process.env.SESSION_SECRET ??= 'x'.repeat(48);
 
-const { migrateAndSeed } = await import('../lib/db/migrate');
 const { db } = await import('../lib/db');
 const { users, activityLog, loginThrottle } = await import('../lib/db/schema');
 const { hashPin, verifyPin, isValidPinFormat } = await import('../lib/auth/pin');
@@ -33,23 +32,85 @@ function section(name: string): void {
   console.log(`\n${name}`);
 }
 
-migrateAndSeed();
+const { initDatabase } = await import('../lib/db/migrate');
+const { redeemSetupCode, verifySetupCode } = await import('../lib/setup');
+const { getSetting } = await import('../lib/settings');
+const { seedTestUsers } = await import('./helpers/test-users.mts');
 
-section('Seeding');
-const seeded = db.select().from(users).all();
-check('five people seeded', seeded.length === 5, `got ${seeded.length}`);
+/** The code file lands next to whatever database this run created. */
+function readSetupCodeFile(): string {
+  return fs.readFileSync(path.join(path.dirname(process.env.TASQ_DB_PATH!), 'setup-code.txt'), 'utf8')
+    .split('\n')
+    .find((l) => l.startsWith('Code:'))!
+    .slice(5)
+    .trim();
+}
+
+initDatabase();
+
+section('First boot');
+const freshBoot = db.select().from(users).all();
+check('a fresh install has zero people', freshBoot.length === 0, `got ${freshBoot.length}`);
+const code = readSetupCodeFile();
+check('a setup code was minted', verifySetupCode(code));
+
+section('Setup redemption');
 check(
-  'exactly Chris, Landon, Tony, Shelly, Alyssa',
-  seeded.map((u) => u.name).join(',') === 'Chris,Landon,Tony,Shelly,Alyssa',
-  seeded.map((u) => u.name).join(','),
+  'wrong code refused',
+  !(await redeemSetupCode('AAAA-BBBB', 'Shop', 'Chris', '1234', '1234')).ok,
 );
-check('Chris is the only admin', seeded.filter((u) => u.isAdmin).length === 1);
-check('Chris is admin', seeded.find((u) => u.name === 'Chris')?.isAdmin === true);
-check('nobody has a PIN yet', seeded.every((u) => u.pinHash === null));
+check(
+  'mismatched PIN refused',
+  !(await redeemSetupCode(code, 'Shop', 'Chris', '1234', '9999')).ok,
+);
+check(
+  'short name refused',
+  !(await redeemSetupCode(code, 'Shop', 'C', '1234', '1234')).ok,
+);
+check('code still unclaimed after refusals', verifySetupCode(code));
+// Lowercase and missing dash both normalise to the same code.
+const redeemed = await redeemSetupCode(
+  code.toLowerCase().replace('-', ''),
+  'Idaho Supply Co',
+  'Chris',
+  '2481',
+  '2481',
+);
+check('code redeems into the first admin', redeemed.ok);
+const chrisRow = db.select().from(users).where(eq(users.name, 'Chris')).get();
+check('exactly one person now', db.select({ id: users.id }).from(users).all().length === 1);
+check('they are an admin', chrisRow?.isAdmin === true);
+check('their PIN is hashed', (chrisRow?.pinHash ?? '').startsWith('scrypt$'));
+check('business name stored', getSetting('org.name') === 'Idaho Supply Co');
+check('code consumed', !verifySetupCode(code));
+check(
+  'code file deleted itself after redemption',
+  !fs.existsSync(path.join(path.dirname(process.env.TASQ_DB_PATH!), 'setup-code.txt')),
+);
+const staleInitial = await redeemSetupCode(code, 'Other Shop', 'Nina', '1111', '1111');
+check('second redemption refused', !staleInitial.ok && staleInitial.reason === 'already-set-up');
+check(
+  'refused redemption added nobody',
+  db.select({ id: users.id }).from(users).all().length === 1,
+);
 
-migrateAndSeed();
+initDatabase();
 const afterSecondBoot = db.select().from(users).all();
-check('re-running migrate+seed does not duplicate', afterSecondBoot.length === 5);
+check('re-running boot mints nobody and nothing new', afterSecondBoot.length === 1);
+
+seedTestUsers();
+
+section('Test crew');
+const seeded = db.select().from(users).orderBy(users.id).all();
+check('five people on the crew', seeded.length === 5, `got ${seeded.length}`);
+check(
+  'Landon, Tony, Shelly and Alyssa joined Chris',
+  ['Landon', 'Tony', 'Shelly', 'Alyssa'].every((n) => seeded.some((u) => u.name === n)),
+);
+check(
+  'nobody else has a PIN yet',
+  seeded.filter((u) => u.name !== 'Chris').every((u) => u.pinHash === null),
+);
 
 section('PIN format');
 check('4 digits accepted', isValidPinFormat('0042'));
@@ -130,9 +191,13 @@ logActivity({
   summary: 'Failed PIN for Tony (2 tries left)',
 });
 const entries = db.select().from(activityLog).all();
-check('entry written', entries.length === 1);
-check('summary is readable prose', entries[0].summary === 'Failed PIN for Tony (2 tries left)');
-check('summary carries the name, not just an id', entries[0].summary.includes('Tony'));
+// The setup redemption above already wrote one entry; this is the second.
+check('entry written', entries.some((e) => e.summary === 'Failed PIN for Tony (2 tries left)'));
+check(
+  'summary is readable prose',
+  entries.find((e) => e.verb === 'auth.failed')?.summary === 'Failed PIN for Tony (2 tries left)',
+);
+check('summary carries the name, not just an id', entries[entries.length - 1].summary.includes('Tony'));
 
 section('Shop time (America/Boise)');
 // 2026-08-17 15:30 UTC is 09:30 in Boise (MDT, UTC-6).

@@ -18,7 +18,8 @@ const EXPLANATION: Record<PushState, string> = {
     "You're on the shop-network address, which can't do notifications — phones only allow them over a secure https connection. Open the board on its https address instead.",
   'needs-install':
     'iPhone only allows notifications once the board is on your home screen. Share → Add to Home Screen, then open it from there.',
-  'not-configured': 'Notifications are not set up on the server yet — see setup/README.md.',
+  'not-configured':
+    "Notifications couldn't start on the server. The keys are generated automatically, so this usually means a database problem — check the server logs.",
   default: 'Get a buzz when a task is assigned to you, or something goes up as ASAP.',
   granted: 'On for this device.',
   denied:

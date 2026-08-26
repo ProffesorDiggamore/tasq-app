@@ -8,11 +8,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-notify-'));
-process.env.APEX_DB_PATH = path.join(tmp, 'verify.db');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tasq-notify-'));
+process.env.TASQ_DB_PATH = path.join(tmp, 'verify.db');
 process.env.SESSION_SECRET ??= 'x'.repeat(48);
 
-const { migrateAndSeed } = await import('../lib/db/migrate');
+const { initDatabase } = await import('../lib/db/migrate');
+const { seedTestUsers } = await import('./helpers/test-users.mts');
 const { db } = await import('../lib/db');
 const { users } = await import('../lib/db/schema');
 const machine = await import('../lib/task-machine');
@@ -31,7 +32,8 @@ const check = (label: string, cond: boolean, detail = ''): void => {
 };
 const section = (n: string) => console.log(`\n${n}`);
 
-migrateAndSeed();
+initDatabase();
+seedTestUsers();
 const all = db.select().from(users).all();
 const chris = all.find((u) => u.name === 'Chris')!;
 const landon = all.find((u) => u.name === 'Landon')!;
@@ -44,6 +46,7 @@ const mk = (actor = chris, o: Record<string, unknown> = {}) =>
     assignedTo: null,
     isAsap: false,
     dueLocal: null,
+    rewardCents: null,
     ...o,
   });
 

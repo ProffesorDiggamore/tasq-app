@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Apex Board server.
+  Tasq server.
 
   A LaunchDaemon, not a LaunchAgent: the board has to come back after a power
   cut with nobody logging in. See setup/README.md for the tradeoff.
@@ -13,7 +13,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.apexboard.server</string>
+    <string>com.tasq.server</string>
 
     <key>ProgramArguments</key>
     <array>
@@ -36,7 +36,7 @@
         <string>__NODE_DIR__:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>NODE_ENV</key>
         <string>production</string>
-        <key>APEX_ROOT</key>
+        <key>TASQ_ROOT</key>
         <string>__APP_DIR__</string>
     </dict>
 

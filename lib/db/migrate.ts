@@ -1,39 +1,20 @@
 import 'server-only';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { db, sqlite } from './index';
-import { users } from './schema';
+import { db } from './index';
 import { MIGRATIONS_DIR } from '@/lib/paths';
-
-/** The five people the shop starts with. Editable afterwards in Settings. */
-const SEED_USERS: ReadonlyArray<{ name: string; isAdmin: boolean }> = [
-  { name: 'Chris', isAdmin: true },
-  { name: 'Landon', isAdmin: false },
-  { name: 'Tony', isAdmin: false },
-  { name: 'Shelly', isAdmin: false },
-  { name: 'Alyssa', isAdmin: false },
-];
+import { ensureSetupCode } from '@/lib/setup';
 
 let done = false;
 
 /**
  * Runs on server start (see instrumentation.ts). Applying migrations and
- * seeding are both idempotent, so a crash-restart loop is harmless.
+ * minting the first setup code are both idempotent, so a crash-restart loop is
+ * harmless. A fresh install starts with zero people: the owner redeems the
+ * setup code at /setup to create the first admin account.
  */
-export function migrateAndSeed(): void {
+export function initDatabase(): void {
   if (done) return;
   migrate(db, { migrationsFolder: MIGRATIONS_DIR });
-
-  const existing = db.select({ name: users.name }).from(users).all();
-  if (existing.length === 0) {
-    const now = Date.now();
-    const insert = db.insert(users).values(
-      SEED_USERS.map((u) => ({
-        name: u.name,
-        isAdmin: u.isAdmin,
-        createdAt: now,
-      })),
-    );
-    insert.run();
-  }
+  ensureSetupCode();
   done = true;
 }

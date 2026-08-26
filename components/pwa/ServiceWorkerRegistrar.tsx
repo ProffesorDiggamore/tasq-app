@@ -21,7 +21,7 @@ export function ServiceWorkerRegistrar() {
       });
       if ('caches' in window) {
         void caches.keys().then((keys) => {
-          for (const key of keys) if (key.startsWith('apex-board')) void caches.delete(key);
+          for (const key of keys) if (key.startsWith('tasq')) void caches.delete(key);
         });
       }
       return;
@@ -29,7 +29,7 @@ export function ServiceWorkerRegistrar() {
 
     const register = () => {
       navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch((error) => {
-        console.warn('[apex] service worker registration failed', error);
+        console.warn('[tasq] service worker registration failed', error);
       });
     };
     if (document.readyState === 'complete') register();

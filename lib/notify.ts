@@ -4,6 +4,7 @@ import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { pushSubscriptions, tasks, users } from '@/lib/db/schema';
 import type { NotifyIntent } from '@/lib/board-types';
+import { getSetting, setSettingIfAbsent } from '@/lib/settings';
 
 /**
  * The single place anything leaves the building.
@@ -18,29 +19,74 @@ interface Channel {
   send(userIds: number[], intent: NotifyIntent): Promise<void>;
 }
 
+/** Used when the deployment does not say otherwise. Push services only need a reachable contact shape. */
+const DEFAULT_VAPID_SUBJECT = 'mailto:board-notifications@localhost';
+
+interface VapidKeys {
+  publicKey: string;
+  privateKey: string;
+}
+
 let vapidReady: boolean | null = null;
+
+/**
+ * Keys come from the environment when the deployment set one — that stays the
+ * documented override — and otherwise are generated once and kept in the
+ * database, so notifications work on a fresh install without anyone editing
+ * .env.local. The pair is stored under ONE key as JSON: two servers booting at
+ * once must never end up holding a public half from one pair and a private
+ * half from another.
+ */
+function resolveVapidKeys(): VapidKeys | null {
+  const envPublic = process.env.VAPID_PUBLIC_KEY;
+  const envPrivate = process.env.VAPID_PRIVATE_KEY;
+  if (envPublic && envPrivate) return { publicKey: envPublic, privateKey: envPrivate };
+
+  const stored = getSetting('vapid.keys');
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored) as VapidKeys;
+      if (parsed.publicKey && parsed.privateKey) return parsed;
+    } catch {
+      // Falls through to regeneration below.
+    }
+  }
+
+  const generated = webpush.generateVAPIDKeys();
+  const winner = setSettingIfAbsent('vapid.keys', JSON.stringify(generated));
+  const keys = JSON.parse(winner) as VapidKeys;
+  console.log('[tasq] Generated Web Push (VAPID) keys and saved them to the database.');
+  return keys;
+}
+
+function resolveSubject(): string {
+  return process.env.VAPID_SUBJECT || getSetting('vapid.subject') || DEFAULT_VAPID_SUBJECT;
+}
 
 function configureVapid(): boolean {
   if (vapidReady !== null) return vapidReady;
-  const publicKey = process.env.VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT;
-  if (!publicKey || !privateKey || !subject) {
-    console.warn('[apex] VAPID keys not set — notifications are off. See .env.example.');
+  try {
+    const keys = resolveVapidKeys();
+    if (!keys) {
+      vapidReady = false;
+      return false;
+    }
+    webpush.setVapidDetails(resolveSubject(), keys.publicKey, keys.privateKey);
+    vapidReady = true;
+  } catch (error) {
+    console.error('[tasq] Could not configure Web Push', error);
     vapidReady = false;
-    return false;
   }
-  webpush.setVapidDetails(subject, publicKey, privateKey);
-  vapidReady = true;
-  return true;
+  return vapidReady;
 }
 
 export function pushConfigured(): boolean {
   return configureVapid();
 }
 
+/** Provisioning happens here too, so the browser can subscribe before anything has been sent. */
 export function vapidPublicKey(): string | null {
-  return process.env.VAPID_PUBLIC_KEY ?? null;
+  return resolveVapidKeys()?.publicKey ?? null;
 }
 
 const webPushChannel: Channel = {
@@ -83,7 +129,7 @@ const webPushChannel: Channel = {
           if (status === 404 || status === 410) {
             db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, row.id)).run();
           } else {
-            console.warn(`[apex] push to subscription ${row.id} failed (${status ?? 'no status'})`);
+            console.warn(`[tasq] push to subscription ${row.id} failed (${status ?? 'no status'})`);
           }
         }
       }),
@@ -130,7 +176,7 @@ export async function dispatch(intent: NotifyIntent): Promise<void> {
       await channel.send(userIds, intent);
     }
   } catch (error) {
-    console.error('[apex] notification dispatch failed', error);
+    console.error('[tasq] notification dispatch failed', error);
   }
 }
 
