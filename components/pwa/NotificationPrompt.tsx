@@ -19,6 +19,8 @@ export function NotificationPrompt() {
 
   useEffect(() => {
     let cancelled = false;
+    // Kept out here so unmount can cancel it even if the promise settles first.
+    let showTimer = 0;
     const platform = detectPlatform();
     if (timesSeen(PUSH_HINT_KEY) >= MAX_HINTS) return;
 
@@ -26,15 +28,15 @@ export function NotificationPrompt() {
       if (cancelled) return;
       // Only worth asking when asking can actually succeed.
       if (state !== 'default') return;
-      const id = window.setTimeout(() => {
+      showTimer = window.setTimeout(() => {
         markSeen(PUSH_HINT_KEY);
         setShow(true);
       }, 2400);
-      return () => window.clearTimeout(id);
     });
 
     return () => {
       cancelled = true;
+      window.clearTimeout(showTimer);
     };
   }, []);
 

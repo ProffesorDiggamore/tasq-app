@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Rail } from '@/components/ui/Rail';
@@ -35,11 +35,22 @@ const dayHeading = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
 });
 
+function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  const run = (...args: A) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+  run.cancel = () => clearTimeout(t);
+  return run;
+}
+
 export function HistoryList({
   days,
   people,
   range,
   actorId,
+  search,
   truncated,
   todayDate,
 }: {
@@ -47,6 +58,7 @@ export function HistoryList({
   people: ReadonlyArray<{ id: number; name: string }>;
   range: HistoryRange;
   actorId: number | null;
+  search: string;
   truncated: boolean;
   todayDate: string;
 }) {
@@ -63,9 +75,41 @@ export function HistoryList({
     [params, router],
   );
 
+  // Debounced: typing scrolls the server query, not every keystroke.
+  const setSearch = useCallback(
+    debounce((value: string) => {
+      setFilter('q', value.trim() === '' ? null : value);
+    }, 350),
+    [setFilter],
+  );
+
+  // Leaving the page with keystrokes still in flight must not fire a
+  // router.replace for a screen that is already gone.
+  useEffect(() => () => setSearch.cancel(), [setSearch]);
+
   return (
     <main className="mx-auto w-full max-w-2xl pb-24" style={{ paddingInline: 'var(--gutter)' }}>
-      <Rail className="flex gap-2 pb-1" label="Date range">
+      <form
+        role="search"
+        className="mt-1"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSearch(new FormData(e.currentTarget).get('q')?.toString() ?? '');
+        }}
+      >
+        <input
+          name="q"
+          type="search"
+          defaultValue={search}
+          onChange={(e) => setSearch(e.target.value)}
+          autoComplete="off"
+          aria-label="Search history"
+          className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5 py-2"
+          style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
+        />
+      </form>
+
+      <Rail className="mt-2 flex gap-2 pb-1" label="Date range">
         {RANGES.map((r) => (
           <Button
             key={r.value}

@@ -12,6 +12,24 @@
 const CACHE = 'tasq-v1';
 const OFFLINE_URL = '/offline';
 const PRECACHE = [OFFLINE_URL, '/icons/icon-192.png', '/icons/icon-512.png'];
+/**
+ * Runtime cap. Hashed chunks are immutable but not eternal: every deploy
+ * mints new URLs, and without a cap the cache grows one build at a time
+ * forever. `caches.keys()`/`cache.keys()` list entries in insertion order,
+ * so evicting from the front is a FIFO cache — the oldest chunk is the one
+ * no current page references.
+ */
+const RUNTIME_MAX_ENTRIES = 60;
+
+/** Keep the runtime cache bounded: drop the oldest entries past the cap. */
+async function trimCache() {
+  const cache = await caches.open(CACHE);
+  const keys = await cache.keys();
+  if (keys.length <= RUNTIME_MAX_ENTRIES) return;
+  for (const key of keys.slice(0, keys.length - RUNTIME_MAX_ENTRIES)) {
+    await cache.delete(key);
+  }
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -46,7 +64,7 @@ self.addEventListener('fetch', (event) => {
           hit ??
           fetch(request).then((response) => {
             const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy));
+            caches.open(CACHE).then((cache) => cache.put(request, copy)).then(trimCache);
             return response;
           }),
       ),
