@@ -13,17 +13,17 @@ import {
 import { haptic } from '@/lib/haptics';
 
 const EXPLANATION: Record<PushState, string> = {
-  unsupported: "This browser can't do notifications. Chrome or Safari can.",
+  unsupported: "This browser can't do notifications. Use Chrome or Safari.",
   insecure:
-    "You're on the shop-network address, which can't do notifications — phones only allow them over a secure https connection. Open the board on its https address instead.",
+    "You're on a local network address — notifications need HTTPS. Open the board on its secure address, or use localhost on the shop Mac.",
   'needs-install':
-    'iPhone only allows notifications once the board is on your home screen. Share → Add to Home Screen, then open it from there.',
+    'iPhone requires the board on your home screen for notifications. Share → Add to Home Screen, then open from there.',
   'not-configured':
-    "Notifications couldn't start on the server. The keys are generated automatically, so this usually means a database problem — check the server logs.",
-  default: 'Get a buzz when a task is assigned to you, or something goes up as ASAP.',
+    "Notifications aren't set up on the server. Check server logs.",
+  default: 'Get a buzz when a task is assigned to you or goes ASAP.',
   granted: 'On for this device.',
   denied:
-    'Blocked in your browser settings for this site. You can turn it back on there, then come back.',
+    'Blocked in browser settings. Turn it back on there, then return.',
 };
 
 export function NotificationSettings() {

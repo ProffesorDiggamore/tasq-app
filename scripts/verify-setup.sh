@@ -45,7 +45,10 @@ for f in "$ROOT"/setup/*.plist; do
   tmp="$(mktemp)"
   sed -e 's|__APP_DIR__|/Users/Shared/tasq|g' \
       -e 's|__RUN_USER__|shopuser|g' \
-      -e 's|__NODE_DIR__|/opt/homebrew/bin|g' "$f" > "$tmp"
+      -e 's|__RUN_HOME__|/Users/shopuser|g' \
+      -e 's|__NODE_DIR__|/opt/homebrew/bin|g' \
+      -e 's|__CLOUDFLARED__|/opt/homebrew/bin/cloudflared|g' \
+      -e 's|__CLOUDFLARED_DIR__|/opt/homebrew/bin|g' "$f" > "$tmp"
   LABEL="$(basename "$f") is a valid plist once filled in"
   ok_if plutil -lint "$tmp"
   LABEL="$(basename "$f") has no placeholders left after filling in"

@@ -16,6 +16,8 @@ export interface BoardRowProps {
   defaultOpen?: boolean;
   emptyMessage?: string;
   count: number;
+  /** `data-tour` anchor for the guided tour (components/tour). */
+  anchor?: string;
   children: ReactNode;
 }
 
@@ -27,6 +29,7 @@ export function BoardRow({
   defaultOpen = true,
   emptyMessage,
   count,
+  anchor,
   children,
 }: BoardRowProps) {
   const [open, setOpen] = useState(defaultOpen);
@@ -66,7 +69,7 @@ export function BoardRow({
   );
 
   return (
-    <section className="mt-7 first:mt-2">
+    <section className="mt-7 first:mt-2" data-tour={anchor}>
       {collapsible ? (
         <RowDisclosure open={open} onToggle={() => setOpen((o) => !o)}>
           {heading}

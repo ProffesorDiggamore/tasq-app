@@ -2,6 +2,7 @@ import 'server-only';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { tasks, users, type User } from '@/lib/db/schema';
+import { canUseGroup } from '@/lib/groups';
 import { logActivity } from '@/lib/activity';
 import { localWallClockToUtc } from '@/lib/time';
 import type { NewTaskInput, NotifyIntent, TaskActionResult } from '@/lib/board-types';
@@ -19,7 +20,7 @@ import type { NewTaskInput, NotifyIntent, TaskActionResult } from '@/lib/board-t
  * them. That keeps the machine synchronous and lets the verification script
  * assert on exactly who would be told what, without a push service in the loop.
  */
-export type MachineResult = TaskActionResult & { notify?: NotifyIntent[] };
+export type MachineResult = TaskActionResult & { notify?: NotifyIntent[]; code?: string };
 
 const TITLE_MAX = 120;
 const NOTES_MAX = 4000;
@@ -31,25 +32,26 @@ function nameOf(userId: number): string {
   );
 }
 
-function explainMiss(taskId: number): TaskActionResult {
+function explainMiss(taskId: number): TaskActionResult & { code?: string } {
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
-  if (!task) return { ok: false, reason: 'gone' };
+  if (!task) return { ok: false, reason: 'gone', code: 'TASQ-E0201' };
 
   if (task.status === 'cancelled') {
-    return { ok: false, reason: 'stale', message: 'That task was cancelled.' };
+    return { ok: false, reason: 'stale', code: 'TASQ-E0202', message: 'That task was cancelled.' };
   }
   if (task.status === 'done') {
     const by = task.completedBy ? nameOf(task.completedBy) : null;
     return {
       ok: false,
       reason: 'stale',
+      code: 'TASQ-E0203',
       message: by ? `${by} already finished that one.` : 'That task is already done.',
     };
   }
   if (task.assignedTo !== null) {
-    return { ok: false, reason: 'claimed', by: nameOf(task.assignedTo) };
+    return { ok: false, reason: 'claimed', code: 'TASQ-E0204', by: nameOf(task.assignedTo) };
   }
-  return { ok: false, reason: 'stale', message: 'That task moved — pull down to refresh.' };
+  return { ok: false, reason: 'stale', code: 'TASQ-E0211', message: 'That task moved — pull down to refresh.' };
 }
 
 function clean(value: string, max: number): string {
@@ -73,14 +75,21 @@ export function createTask(
   input: NewTaskInput,
   now: number = Date.now(),
 ): MachineResult & { taskId?: number } {
-  // Posting work is the owner's job: rewards are money, and money is an
-  // admin decision. Everyone else claims, does, and finishes.
-  if (!actor.isAdmin) {
-    return { ok: false, reason: 'invalid', message: 'Only admins can add tasks.' };
+  // Anyone on the board can post work — to the shared Tasqs tab, or to a tab
+  // they are in. What stays the owner's alone is money: a bounty is spending,
+  // so a non-admin's reward is dropped rather than the whole task refused.
+  const groupId = input.groupId ?? null;
+  if (!canUseGroup(actor, groupId)) {
+    return {
+      ok: false,
+      reason: 'invalid',
+      code: 'TASQ-E0212',
+      message: 'That tab is gone, or you are not on it.',
+    };
   }
-  const rewardCents = normalizeReward(input.rewardCents);
+  const rewardCents = actor.isAdmin ? normalizeReward(input.rewardCents) : null;
   const title = clean(input.title, TITLE_MAX);
-  if (title.length === 0) return { ok: false, reason: 'invalid', message: 'Give it a title.' };
+  if (title.length === 0) return { ok: false, reason: 'invalid', code: 'TASQ-E0206', message: 'Give it a title.' };
   const notes = clean(input.notes, NOTES_MAX) || null;
 
   let assignedTo: number | null = null;
@@ -91,7 +100,7 @@ export function createTask(
       .where(and(eq(users.id, input.assignedTo), isNull(users.archivedAt)))
       .get();
     if (!target) {
-      return { ok: false, reason: 'invalid', message: 'That person is no longer on the board.' };
+      return { ok: false, reason: 'invalid', code: 'TASQ-E0207', message: 'That person is no longer on the board.' };
     }
     assignedTo = target.id;
   }
@@ -101,7 +110,7 @@ export function createTask(
   let dueAt: number | null = null;
   if (input.dueLocal) {
     const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(input.dueLocal);
-    if (!match) return { ok: false, reason: 'invalid', message: "That due time didn't parse." };
+    if (!match) return { ok: false, reason: 'invalid', code: 'TASQ-E0208', message: "That due time didn't parse." };
     dueAt = localWallClockToUtc(match[1], match[2]);
   }
 
@@ -112,6 +121,7 @@ export function createTask(
       notes,
       createdBy: actor.id,
       assignedTo,
+      groupId,
       isAsap: input.isAsap,
       dueAt,
       rewardCents,
@@ -154,9 +164,13 @@ export function createTask(
   }
   if (input.isAsap) {
     // ASAP is the shared row, so everyone hears about it — except whoever just
-    // typed it, and without doubling up on an assignee already told above.
+    // typed it, and without doubling up on an assignee already told above. On a
+    // group tab "everyone" means everyone who can see that tab.
     notify.push({
-      audience: { kind: 'everyone', except: actor.id },
+      audience:
+        groupId === null
+          ? { kind: 'everyone', except: actor.id }
+          : { kind: 'group', groupId, except: actor.id },
       title: 'ASAP',
       body: title,
       url,
@@ -188,6 +202,7 @@ export function updateTask(
     return {
       ok: false,
       reason: 'invalid',
+      code: 'TASQ-E0209',
       message: `Only ${nameOf(existing.createdBy)} or an admin can edit that.`,
     };
   }
@@ -195,12 +210,13 @@ export function updateTask(
     return {
       ok: false,
       reason: 'stale',
+      code: existing.status === 'done' ? 'TASQ-E0203' : 'TASQ-E0202',
       message: `That task is already ${existing.status}. Put it back first.`,
     };
   }
 
   const title = clean(input.title, TITLE_MAX);
-  if (title.length === 0) return { ok: false, reason: 'invalid', message: 'Give it a title.' };
+  if (title.length === 0) return { ok: false, reason: 'invalid', code: 'TASQ-E0206', message: 'Give it a title.' };
   const notes = clean(input.notes, NOTES_MAX) || null;
 
   let assignedTo: number | null = null;
@@ -211,7 +227,7 @@ export function updateTask(
       .where(and(eq(users.id, input.assignedTo), isNull(users.archivedAt)))
       .get();
     if (!target) {
-      return { ok: false, reason: 'invalid', message: 'That person is no longer on the board.' };
+      return { ok: false, reason: 'invalid', code: 'TASQ-E0207', message: 'That person is no longer on the board.' };
     }
     assignedTo = target.id;
   }
@@ -219,7 +235,7 @@ export function updateTask(
   let dueAt: number | null = null;
   if (input.dueLocal) {
     const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(input.dueLocal);
-    if (!match) return { ok: false, reason: 'invalid', message: "That due time didn't parse." };
+    if (!match) return { ok: false, reason: 'invalid', code: 'TASQ-E0208', message: "That due time didn't parse." };
     dueAt = localWallClockToUtc(match[1], match[2]);
   }
 
@@ -227,6 +243,10 @@ export function updateTask(
   const status = reassigned ? 'pending' : existing.status;
   // A due time pushed into the future earns a fresh nudge.
   const overdueNotifiedAt = dueAt !== null && dueAt > now ? null : existing.overdueNotifiedAt;
+
+  // Money is an admin decision: a non-admin creator editing their own task
+  // keeps whatever bounty it already had, whatever the form sent.
+  const rewardCents = actor.isAdmin ? normalizeReward(input.rewardCents) : existing.rewardCents;
 
   const result = db
     .update(tasks)
@@ -236,7 +256,7 @@ export function updateTask(
       assignedTo,
       isAsap: input.isAsap,
       dueAt,
-      rewardCents: normalizeReward(input.rewardCents),
+      rewardCents,
       status,
       acceptedAt: reassigned ? null : existing.acceptedAt,
       claimedAt: reassigned ? null : existing.claimedAt,
@@ -259,7 +279,7 @@ export function updateTask(
   }
   if (dueAt !== existing.dueAt) changes.push(dueAt === null ? 'cleared the due time' : 'changed the due time');
   {
-    const nextReward = normalizeReward(input.rewardCents);
+    const nextReward = rewardCents;
     const prevSuffix = rewardSuffix(existing.rewardCents ?? null);
     const nextSuffix = rewardSuffix(nextReward);
     if (prevSuffix !== nextSuffix) {
@@ -497,6 +517,7 @@ export function cancelTask(actor: User, taskId: number, now: number = Date.now()
     return {
       ok: false,
       reason: 'invalid',
+      code: 'TASQ-E0210',
       message: `Only ${nameOf(task.createdBy)} or an admin can cancel that.`,
     };
   }

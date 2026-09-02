@@ -167,19 +167,23 @@ check('the row survives', row(chrisTask) !== undefined);
 check('status is cancelled', row(chrisTask).status === 'cancelled');
 check('it leaves every board row', !board.upForGrabs().some((t) => t.id === chrisTask));
 
-// Creation is admin-only now, so "someone else" is a second admin. The
-// machine reads the actor it is handed, so promote the object directly.
-const landonAsAdmin = { ...landon, isAdmin: true };
-const landonTask = makeTask(landonAsAdmin, { title: "Landon's errand" });
+const landonTask = makeTask(landon, { title: "Landon's errand" });
 check('an admin can cancel what someone else created', machine.cancelTask(chris, landonTask).ok);
-check('a non-admin cannot post tasks', !machine.createTask(tony, {
-  title: 'Not allowed',
+
+// Anyone posts work since tabs shipped; what stays admin-only is the money.
+const crewPost = machine.createTask(tony, {
+  title: 'Crew can post',
   notes: '',
   assignedTo: null,
   isAsap: false,
   dueLocal: null,
-  rewardCents: null,
-}).ok);
+  rewardCents: 5000,
+});
+check('a non-admin can post a task', crewPost.ok);
+check(
+  'but the bounty they tried to attach is dropped',
+  crewPost.ok && crewPost.taskId !== undefined && row(crewPost.taskId).rewardCents === null,
+);
 
 const cancelDone = makeTask(chris, { title: 'Already finished' });
 machine.completeTask(chris, cancelDone);
@@ -229,6 +233,40 @@ check(
 );
 check('an ASAP assignment is marked', summaries.some((s) => s.includes('(ASAP)')));
 check('no summary leaks a raw id', summaries.every((s) => !/\bid[:=]/i.test(s)));
+
+section('Tabs scope the board');
+const { createGroup, setGroupMembers, canUseGroup } = await import('../lib/groups');
+const made = createGroup(chris, 'Shop Floor');
+check('an admin can make a tab', made.ok && made.groupId !== undefined);
+const shopFloor = made.groupId!;
+setGroupMembers(chris, shopFloor, [shelly.id]);
+
+check('a member may post to it', canUseGroup(shelly, shopFloor));
+check('an admin may post to any tab without being on it', canUseGroup(chris, shopFloor));
+check('someone left off it may not', !canUseGroup(tony, shopFloor));
+check(
+  'and the machine refuses their task rather than filing it anyway',
+  !machine.createTask(tony, {
+    title: 'Sneaking in',
+    notes: '',
+    assignedTo: null,
+    isAsap: false,
+    dueLocal: null,
+    rewardCents: null,
+    groupId: shopFloor,
+  }).ok,
+);
+
+const tabbed = makeTask(chris, { title: 'Sweep the bay', groupId: shopFloor });
+check('a tab task is on its own tab', board.upForGrabs(shopFloor).some((t) => t.id === tabbed));
+check('and not on the shared one', !board.upForGrabs(null).some((t) => t.id === tabbed));
+check(
+  'the shared board is unchanged for tasks with no tab',
+  board.upForGrabs(null).every((t) => t.groupId === null),
+);
+const tabAsap = makeTask(chris, { title: 'Tab ASAP', isAsap: true, groupId: shopFloor });
+check('ASAP is per-tab too', board.asapTasks(shopFloor).some((t) => t.id === tabAsap));
+check('and stays off the shared ASAP row', !board.asapTasks(null).some((t) => t.id === tabAsap));
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} check(s) FAILED.`}`);

@@ -5,11 +5,14 @@ import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/ui/Button';
+import { CheckRow } from '@/components/ui/CheckRow';
+import { Segmented } from '@/components/ui/Segmented';
 import { Rail } from '@/components/ui/Rail';
 import { createTaskAction } from '@/app/actions';
 import { createRecurrenceAction } from '@/app/recurrence-actions';
 import { RepeatControls, type RepeatState } from '@/components/board/RepeatControls';
 import type { PersonSummary } from '@/lib/auth/results';
+import type { GroupTab } from '@/lib/board-types';
 import { haptic } from '@/lib/haptics';
 import { SPRING_ENTER, SPRING_SHEET } from '@/lib/motion';
 import { localDateString, localClockString } from '@/lib/time';
@@ -23,18 +26,34 @@ export function parseRewardInput(text: string): number | null {
   return Math.round(parsed * 100);
 }
 
-export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; viewerId: number }) {
+export function NewTaskForm({
+  people,
+  viewerId,
+  canSetReward,
+  tabs,
+  initialGroupId,
+}: {
+  people: PersonSummary[];
+  viewerId: number;
+  /** A bounty is spending, so only an admin is shown the field. */
+  canSetReward: boolean;
+  /** Group tabs this person may post to. Empty on a board with no groups. */
+  tabs: GroupTab[];
+  /** The tab they pressed New task from; null is the shared Tasqs tab. */
+  initialGroupId: number | null;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   /** undefined = "Anyone" (the open pool). */
   const [assignedTo, setAssignedTo] = useState<number | null>(null);
+  const [groupId, setGroupId] = useState<number | null>(initialGroupId);
   const [reward, setReward] = useState('');
   const [isAsap, setIsAsap] = useState(false);
-  const [hasDue, setHasDue] = useState(false);
+  /** One value instead of two booleans that could contradict each other. */
+  const [timing, setTiming] = useState<'whenever' | 'due' | 'repeats'>('whenever');
   const [dueLocal, setDueLocal] = useState(defaultDue);
-  const [repeats, setRepeats] = useState(false);
   const [repeat, setRepeat] = useState<RepeatState>({
     pattern: 'weekly',
     weekdays: [1],
@@ -51,29 +70,33 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
     startTransition(async () => {
       // A repeating task creates a rule, not a one-off. The action spawns
       // today's instance straight away if the rule is already due.
-      const result = repeats
+      const rewardCents = canSetReward ? parseRewardInput(reward) : null;
+      const result = timing === 'repeats'
         ? await createRecurrenceAction({
             title,
             notes,
             defaultAssignee: assignedTo,
+            groupId,
             isAsap,
             pattern: repeat.pattern,
             weekdays: repeat.weekdays,
             dayOfMonth: repeat.pattern === 'monthly' ? repeat.dayOfMonth : null,
             spawnTime: repeat.spawnTime,
-            rewardCents: parseRewardInput(reward),
+            rewardCents,
           })
         : await createTaskAction({
             title,
             notes,
             assignedTo,
+            groupId,
             isAsap,
-            dueLocal: hasDue ? dueLocal : null,
-            rewardCents: parseRewardInput(reward),
+            dueLocal: timing === 'due' ? dueLocal : null,
+            rewardCents,
           });
       if (result.ok) {
         haptic('commit');
-        router.push('/');
+        // Back to the tab it was posted to, not always the shared one.
+        router.push(groupId === null ? '/' : `/?g=${groupId}`);
         router.refresh();
         return;
       }
@@ -95,7 +118,7 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value.slice(0, TITLE_MAX))}
-          placeholder="Grease the skid steer"
+          placeholder=""
           autoComplete="off"
           autoFocus
           className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5"
@@ -108,7 +131,7 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
-          placeholder="Zerks on the loader arms too. Grease gun is on the blue cart."
+          placeholder=""
           className="type-body w-full rounded-[var(--radius-control)] px-3.5 py-2.5"
           style={{
             background: 'var(--surface-strong)',
@@ -117,6 +140,31 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
           }}
         />
       </Field>
+
+      {tabs.length > 0 ? (
+        <Field label="Which tab">
+          <Rail className="flex gap-2 pb-1" label="Which tab">
+            <PersonChip
+              selected={groupId === null}
+              onSelect={() => setGroupId(null)}
+              label="Tasqs"
+            />
+            {tabs.map((t) => (
+              <PersonChip
+                key={t.id}
+                selected={groupId === t.id}
+                onSelect={() => setGroupId(t.id)}
+                label={t.name}
+              />
+            ))}
+          </Rail>
+          <p className="type-caption mt-2 text-[var(--text-tertiary)]">
+            {groupId === null
+              ? 'Everyone on the board sees the Tasqs tab.'
+              : 'Only people on that tab — and admins — will see it.'}
+          </p>
+        </Field>
+      ) : null}
 
       <Field label="Who's doing it">
         <Rail className="flex gap-2 pb-1" label="Who's doing it">
@@ -142,6 +190,7 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
         </p>
       </Field>
 
+      {canSetReward ? (
       <Field label="Cash reward" hint="Optional">
         <div className="flex items-center gap-2">
           <span
@@ -154,7 +203,7 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
             value={reward}
             onChange={(e) => setReward(e.target.value.replace(/[^0-9.]/g, '').slice(0, 7))}
             inputMode="decimal"
-            placeholder="0"
+            placeholder=""
             aria-label="Cash reward in dollars"
             className="tap-target type-headline w-28 rounded-[var(--radius-control)] px-3.5 py-2"
             style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
@@ -166,21 +215,27 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
             : 'Whoever finishes it pockets this. Shows as a green tag on the card.'}
         </p>
       </Field>
+      ) : null}
 
-      <div className="material-card mt-5 flex flex-col gap-3.5 rounded-[var(--radius-card)] p-4">
-        <SwitchRow
-          label="ASAP"
-          hint="Shows on the shared ASAP row for everyone."
-          checked={isAsap}
-          onChange={setIsAsap}
+      {/* Timing used to be three switches, two of which contradicted each other
+          — a task cannot both repeat on a schedule and be due at one moment, and
+          the old form expressed that by silently collapsing a row away. Three
+          mutually exclusive states are one question, so they are one control,
+          and the impossible combination cannot be typed in the first place. */}
+      <Field label="When">
+        <Segmented
+          label="When it is due"
+          value={timing}
+          onChange={setTiming}
+          options={[
+            { value: 'whenever', label: 'Whenever', hint: 'No deadline — it sits on the board until someone does it.' },
+            { value: 'due', label: 'By a time', hint: 'Overdue tasks turn red and nudge whoever owns them.' },
+            { value: 'repeats', label: 'Repeats', hint: 'Spawns a fresh copy on a schedule, like Monday greasing.' },
+          ]}
         />
 
-        <div style={{ borderTop: '1px solid var(--hairline)' }} />
-
-        {/* A repeating task's timing *is* its schedule, so the two are mutually
-            exclusive rather than stacked. */}
-        <AnimatePresence initial={false}>
-          {repeats ? null : (
+        <AnimatePresence initial={false} mode="popLayout">
+          {timing === 'due' ? (
             <motion.div
               key="due"
               initial={{ height: 0, opacity: 0 }}
@@ -189,46 +244,22 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
               transition={SPRING_SHEET}
               style={{ overflow: 'hidden' }}
             >
-              <SwitchRow
-                label="Due by a certain time"
-                hint="Overdue tasks turn red and nudge whoever owns them."
-                checked={hasDue}
-                onChange={setHasDue}
+              <input
+                type="datetime-local"
+                value={dueLocal}
+                onChange={(e) => setDueLocal(e.target.value)}
+                aria-label="Due date and time"
+                className="tap-target type-body mt-3 w-full rounded-[var(--radius-control)] px-3.5"
+                style={{
+                  background: 'var(--surface-strong)',
+                  border: '1px solid var(--hairline)',
+                }}
               />
-              {hasDue ? (
-                <div className="mt-3">
-                  <input
-                    type="datetime-local"
-                    value={dueLocal}
-                    onChange={(e) => setDueLocal(e.target.value)}
-                    aria-label="Due date and time"
-                    className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5"
-                    style={{
-                      background: 'var(--surface-strong)',
-                      border: '1px solid var(--hairline)',
-                    }}
-                  />
-                  <p className="type-caption mt-2 text-[var(--text-tertiary)]">Shop time (Boise).</p>
-                </div>
-              ) : null}
+              <p className="type-caption mt-2 text-[var(--text-tertiary)]">Shop time (Boise).</p>
             </motion.div>
-          )}
-        </AnimatePresence>
+          ) : null}
 
-        <div style={{ borderTop: '1px solid var(--hairline)' }} />
-
-        <SwitchRow
-          label="Repeats"
-          hint="Spawns a fresh copy on a schedule, like Monday greasing."
-          checked={repeats}
-          onChange={(v) => {
-            setRepeats(v);
-            if (v) setHasDue(false);
-          }}
-        />
-
-        <AnimatePresence initial={false}>
-          {repeats ? (
+          {timing === 'repeats' ? (
             <motion.div
               key="repeat"
               initial={{ height: 0, opacity: 0 }}
@@ -237,10 +268,21 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
               transition={SPRING_SHEET}
               style={{ overflow: 'hidden' }}
             >
-              <RepeatControls value={repeat} onChange={setRepeat} />
+              <div className="mt-3">
+                <RepeatControls value={repeat} onChange={setRepeat} />
+              </div>
             </motion.div>
           ) : null}
         </AnimatePresence>
+      </Field>
+
+      <div className="material-card mt-5 rounded-[var(--radius-card)] p-4">
+        <CheckRow
+          label="ASAP"
+          hint="Shows on the shared ASAP row for everyone, whoever it belongs to."
+          checked={isAsap}
+          onChange={setIsAsap}
+        />
       </div>
 
       <AnimatePresence>
@@ -274,7 +316,7 @@ export function NewTaskForm({ people, viewerId }: { people: PersonSummary[]; vie
           className="type-headline w-full max-w-lg"
           style={{ boxShadow: 'var(--shadow-sheet)' }}
         >
-          {pending ? 'Adding…' : repeats ? 'Add repeating task' : 'Add to the board'}
+          {pending ? 'Adding…' : timing === 'repeats' ? 'Add repeating task' : 'Add to the board'}
         </Button>
       </div>
     </form>
@@ -331,47 +373,5 @@ function PersonChip({
       {avatar}
       {label}
     </Button>
-  );
-}
-
-function SwitchRow({
-  label,
-  hint,
-  checked,
-  onChange,
-}: {
-  label: string;
-  hint: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="min-w-0 flex-1">
-        <span className="type-body block">{label}</span>
-        <span className="type-caption block text-[var(--text-tertiary)]">{hint}</span>
-      </span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        onClick={() => onChange(!checked)}
-        className="relative shrink-0 rounded-full"
-        style={{
-          width: 51,
-          height: 31,
-          background: checked ? 'var(--success)' : 'var(--surface-pressed)',
-          transition: 'background-color 160ms linear',
-        }}
-      >
-        <motion.span
-          className="absolute top-[2px] block rounded-full bg-white"
-          style={{ width: 27, height: 27, boxShadow: '0 1px 3px rgb(0 0 0 / 0.3)' }}
-          animate={{ x: checked ? 22 : 2 }}
-          transition={SPRING_SHEET}
-        />
-      </button>
-    </div>
   );
 }

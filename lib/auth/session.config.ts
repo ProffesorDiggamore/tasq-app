@@ -1,4 +1,5 @@
 import type { SessionOptions } from 'iron-session';
+import { TasqError } from '@/lib/errors';
 
 /**
  * Edge-safe half of the session module. Proxy (formerly middleware) runs on the edge runtime and
@@ -19,7 +20,7 @@ export const SESSION_REFRESH_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 export function sessionOptions(): SessionOptions {
   const password = process.env.SESSION_SECRET;
   if (!password || password.length < 32) {
-    throw new Error('SESSION_SECRET must be set to at least 32 characters — see .env.example');
+    throw new TasqError('TASQ-E0110', 'SESSION_SECRET must be set to at least 32 characters — see .env.example');
   }
   return {
     password,

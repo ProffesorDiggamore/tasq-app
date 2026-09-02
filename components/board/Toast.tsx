@@ -7,7 +7,7 @@ export interface ToastMessage {
   /** Bumped per message so two identical texts still re-announce. */
   id: number;
   text: string;
-  tone: 'info' | 'error';
+  tone: 'info' | 'error' | 'success';
 }
 
 export function Toast({ message }: { message: ToastMessage | null }) {
@@ -30,10 +30,39 @@ export function Toast({ message }: { message: ToastMessage | null }) {
               boxShadow: 'var(--shadow-card)',
             }}
           >
+            {message.tone === 'success' ? (
+              // The completion micro-reward: a check that pops in ahead of the
+              // words. Keyed with the message so every completion gets its own
+              // pop; scale-only, so it stays legible even if motion never runs.
+              <motion.span
+                key={message.id}
+                initial={{ scale: 0.4, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={SPRING_SHEET}
+                className="mr-1.5 inline-block align-[-3px]"
+                aria-hidden="true"
+              >
+                <CheckGlyph />
+              </motion.span>
+            ) : null}
             {message.text}
           </motion.p>
         ) : null}
       </AnimatePresence>
     </div>
+  );
+}
+
+function CheckGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path
+        d="M2 7.5l3.2 3.2L12 4"
+        stroke="var(--success)"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

@@ -10,15 +10,20 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "recover": "NODE_OPTIONS=--conditions=react-server tsx scripts/recover.mts",
-    "verify": "npm run verify:auth && npm run verify:onboarding && npm run verify:tasks && npm run verify:scheduler && npm run verify:notify && npm run verify:push && npm run verify:editing && npm run verify:setup",
+    "devices": "NODE_OPTIONS=--conditions=react-server tsx scripts/devices.mts",
+    "verify": "npm run verify:auth && npm run verify:onboarding && npm run verify:tasks && npm run verify:scheduler && npm run verify:notify && npm run verify:push && npm run verify:history-extras && npm run verify:security && npm run verify:editing && npm run verify:payouts && npm run verify:devices && npm run verify:setup",
     "verify:auth": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-auth.mts",
     "verify:onboarding": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-onboarding.mts",
     "verify:tasks": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-tasks.mts",
     "verify:scheduler": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-scheduler.mts",
+    "verify:history-extras": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-history-extras.mts",
+    "verify:security": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-security.mts",
     "verify:notify": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-notify.mts",
     "verify:push": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-push.mts",
     "verify:editing": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-editing.mts",
-    "verify:setup": "bash scripts/verify-setup.sh"
+    "verify:setup": "bash scripts/verify-setup.sh",
+    "verify:payouts": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-payouts.mts",
+    "verify:devices": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-devices.mts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

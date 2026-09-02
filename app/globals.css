@@ -4,9 +4,12 @@
    Tasq — design tokens
 
    Dark is the default because this gets read at 6am in a shop bay and on a wall
-   screen; a light system setting flips it. Every colour is a token so the two
-   themes stay honest, and the accessibility media queries at the bottom only
-   ever redefine tokens, never layout.
+   screen. Appearance is a board setting ('light', 'dark', or 'system' resolved
+   from prefers-color-scheme) applied as a data-appearance attribute on <html>
+   by an inline script in app/layout.tsx before first paint — dark needs no
+   block of its own because :root above is already dark. Every colour is a
+   token so the two themes stay honest, and the accessibility media queries at
+   the bottom only ever redefine tokens, never layout.
    ========================================================================== */
 
 :root {
@@ -58,15 +61,17 @@
   color-scheme: dark;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
+:root[data-appearance='light'] {
     --ground: #f2f2f7;
     --ground-raised: #ffffff;
     --surface: rgb(255 255 255 / 0.72);
     --surface-strong: rgb(255 255 255 / 0.88);
     --surface-pressed: rgb(0 0 0 / 0.06);
     --hairline: rgb(0 0 0 / 0.10);
-    --hairline-bright: rgb(255 255 255 / 0.9);
+    /* Mirrors the dark token's step up from --hairline (0.10 -> 0.16), in the
+       light direction. A near-opaque white here vanished on the white sheet:
+       tour progress dots and login PIN dots were invisible in light mode. */
+    --hairline-bright: rgb(0 0 0 / 0.16);
 
     --chrome: rgb(242 242 247 / 0.72);
 
@@ -85,8 +90,7 @@
     --shadow-card: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
     --shadow-sheet: 0 2px 6px rgb(0 0 0 / 0.08), 0 32px 64px rgb(0 0 0 / 0.16);
 
-    color-scheme: light;
-  }
+  color-scheme: light;
 }
 
 @theme inline {
@@ -332,6 +336,34 @@
   .rail::-webkit-scrollbar {
     display: none;
   }
+
+  /* ------------------------------------------------------------------------
+     Page enter
+     ---------------------------------------------------------------------- */
+
+  /* A quick fade-and-settle on every navigation (app/template.tsx remounts the
+     wrapper each route change). Translate-only movement, 6px, so the page
+     arrives rather than flies; transform and opacity keep it on the GPU and
+     out of layout. The sticky header under it is unaffected — a transform on
+     an ancestor only disturbs `position: fixed`, and it is gone at 100%.
+     No fill-mode: `both` keeps the animation's transform applied after it
+     ends, and a retained transform makes this wrapper the containing block
+     for every `position: fixed` descendant — the tour, toasts and the New
+     task bar would anchor to this box instead of the viewport. */
+  .page-enter {
+    animation: page-in 260ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
+
+  @keyframes page-in {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 6px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
 
 /* ==========================================================================
@@ -390,8 +422,8 @@
   }
 }
 
-@media (prefers-contrast: more) and (prefers-color-scheme: light) {
-  :root {
+@media (prefers-contrast: more) {
+  :root[data-appearance='light'] {
     --hairline: rgb(0 0 0 / 0.45);
     --text-secondary: rgb(60 60 67 / 0.9);
     --text-tertiary: rgb(60 60 67 / 0.7);

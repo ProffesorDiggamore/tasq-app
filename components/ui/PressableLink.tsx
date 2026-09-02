@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, ReactNode, Ref } from 'react';
 import { usePress } from '@/lib/use-press';
 import { useRouter } from 'next/navigation';
 
@@ -17,6 +17,7 @@ export function PressableLink({
   className = '',
   style,
   surface = false,
+  ref,
   ...aria
 }: {
   href: string;
@@ -26,12 +27,17 @@ export function PressableLink({
   /** Whole-surface targets scale and tint together; small chrome only scales. */
   surface?: boolean;
   'aria-label'?: string;
+  /** Anchor for the guided tour (components/tour). */
+  'data-tour'?: string;
+  /** For scrolling a link into view — the settings tab strip does this. */
+  ref?: Ref<HTMLAnchorElement>;
 }) {
   const router = useRouter();
   const { pressed, handlers } = usePress(() => router.push(href));
 
   return (
     <Link
+      ref={ref}
       href={href}
       {...handlers}
       // The hook already navigated on pointer-up; let it own the single commit.

@@ -30,11 +30,19 @@ function openDatabase(): Database.Database {
   // Switching into WAL needs a brief exclusive lock and, unlike ordinary
   // statements, SQLite can hand back SQLITE_BUSY for the pragma itself without
   // honouring busy_timeout when several fresh connections race to create the
-  // file (a production build collects page data one worker per core). Retry
-  // instead: whoever loses waits and tries again, and every attempt is
-  // idempotent once the file is already in WAL.
+  // file (a production build collects page data one worker per core) — and it
+  // surfaces as a thrown SqliteError, not a bad return value. Retry either way:
+  // whoever loses waits and tries again, and every attempt is idempotent once
+  // the file is already in WAL.
   for (let attempt = 0; ; attempt += 1) {
-    const mode = conn.pragma('journal_mode = WAL', { simple: true });
+    let mode: string | undefined;
+    try {
+      mode = conn.pragma('journal_mode = WAL', { simple: true }) as string | undefined;
+    } catch (err) {
+      if (attempt >= 40) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+      continue;
+    }
     if (mode === 'wal') break;
     if (attempt >= 40) {
       throw new Error(`Could not switch ${DB_PATH} into WAL mode (last mode: ${mode})`);

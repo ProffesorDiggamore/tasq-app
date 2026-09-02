@@ -9,7 +9,7 @@
  * Bump CACHE when the offline page or the precache list changes; hashed Next
  * assets never need it.
  */
-const CACHE = 'tasq-v1';
+const CACHE = 'tasq-v2';
 const OFFLINE_URL = '/offline';
 const PRECACHE = [OFFLINE_URL, '/icons/icon-192.png', '/icons/icon-512.png'];
 /**
@@ -25,8 +25,17 @@ const RUNTIME_MAX_ENTRIES = 60;
 async function trimCache() {
   const cache = await caches.open(CACHE);
   const keys = await cache.keys();
-  if (keys.length <= RUNTIME_MAX_ENTRIES) return;
-  for (const key of keys.slice(0, keys.length - RUNTIME_MAX_ENTRIES)) {
+  const excess = keys.length - RUNTIME_MAX_ENTRIES;
+  if (excess <= 0) return;
+  // Precache entries were inserted first, so a plain FIFO would evict the
+  // offline page and icons the moment runtime chunks fill the cap — exactly
+  // the assets the cache exists to protect. Never evict those. The cap counts
+  // TOTAL entries: the old logic also required the evictable count alone to
+  // pass the cap, which let the cache drift to RUNTIME_MAX_ENTRIES plus every
+  // precache entry before trimming kicked in.
+  const precache = new Set(PRECACHE.map((url) => new URL(url, self.location.origin).href));
+  const evictable = keys.filter((key) => !precache.has(key.href));
+  for (const key of evictable.slice(0, Math.min(excess, evictable.length))) {
     await cache.delete(key);
   }
 }

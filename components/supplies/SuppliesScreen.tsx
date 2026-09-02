@@ -109,7 +109,7 @@ export function SuppliesScreen({
             <input
               value={item}
               onChange={(e) => setItem(e.target.value)}
-              placeholder="Grease"
+              placeholder=""
               aria-label="What do you need"
               autoComplete="off"
               className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5"
@@ -118,7 +118,7 @@ export function SuppliesScreen({
             <input
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
-              placeholder="2 tubes"
+              placeholder=""
               aria-label="How much"
               autoComplete="off"
               className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5"
@@ -139,7 +139,7 @@ export function SuppliesScreen({
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={2}
-                    placeholder="The red kind, not the blue"
+                    placeholder=""
                     aria-label="Anything else"
                     className="type-body w-full rounded-[var(--radius-control)] px-3.5 py-2.5"
                     style={{

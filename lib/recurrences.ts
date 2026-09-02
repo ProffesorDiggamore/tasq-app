@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, asc, eq, isNull, ne, or } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { recurrences, tasks, users, type Recurrence, type User } from '@/lib/db/schema';
+import { groups, recurrences, tasks, users, type Recurrence, type User } from '@/lib/db/schema';
 import { logActivity } from '@/lib/activity';
 import {
   localClockString,
@@ -11,6 +11,7 @@ import {
 } from '@/lib/time';
 import type { RecurrenceInput, RecurrenceSummary } from '@/lib/board-types';
 import { fail, ok, type ActionResult } from '@/lib/action-result';
+import { canUseGroup } from '@/lib/groups';
 
 const TITLE_MAX = 120;
 const NOTES_MAX = 4000;
@@ -129,6 +130,7 @@ export function spawnDueRecurrences(now: number = Date.now()): SpawnReport {
         notes: rec.notes,
         createdBy: rec.createdBy,
         assignedTo,
+        groupId: rec.groupId,
         isAsap: rec.isAsap,
         rewardCents: rec.rewardCents,
         status: 'pending',
@@ -193,6 +195,9 @@ export function createRecurrence(
 ): ActionResult & { recurrenceId?: number } {
   const problem = validateRecurrence(input);
   if (problem) return fail(problem);
+  if (!canUseGroup(actor, input.groupId ?? null)) {
+    return fail('That tab is gone, or you are not on it.');
+  }
 
   if (input.defaultAssignee !== null) {
     const person = db
@@ -210,8 +215,11 @@ export function createRecurrence(
       notes: cleanText(input.notes, NOTES_MAX) || null,
       createdBy: actor.id,
       defaultAssignee: input.defaultAssignee,
+      groupId: input.groupId ?? null,
       isAsap: input.isAsap,
-      rewardCents: input.rewardCents,
+      // Money is the owner's call, on a repeating rule exactly as on a one-off
+      // task: a non-admin's bounty is dropped, not honoured.
+      rewardCents: actor.isAdmin ? input.rewardCents : null,
       pattern: input.pattern,
       weekdays: input.pattern === 'weekly' ? input.weekdays.sort().join(',') : null,
       dayOfMonth: input.pattern === 'monthly' ? input.dayOfMonth : null,
@@ -262,6 +270,9 @@ export function updateRecurrence(
 
   const problem = validateRecurrence(input);
   if (problem) return fail(problem);
+  if (!canUseGroup(actor, input.groupId ?? null)) {
+    return fail('That tab is gone, or you are not on it.');
+  }
 
   if (input.defaultAssignee !== null) {
     const person = db
@@ -291,12 +302,13 @@ export function updateRecurrence(
       title,
       notes: cleanText(input.notes, NOTES_MAX) || null,
       defaultAssignee: input.defaultAssignee,
+      groupId: input.groupId ?? null,
       isAsap: input.isAsap,
       pattern: input.pattern,
       weekdays: input.pattern === 'weekly' ? [...input.weekdays].sort().join(',') : null,
       dayOfMonth: input.pattern === 'monthly' ? input.dayOfMonth : null,
       spawnTime: input.spawnTime,
-      rewardCents: input.rewardCents,
+      rewardCents: actor.isAdmin ? input.rewardCents : existing.rewardCents,
     })
     .where(eq(recurrences.id, recurrenceId))
     .run();
@@ -445,12 +457,15 @@ export function listRecurrences(): RecurrenceSummary[] {
       active: recurrences.active,
       defaultAssignee: recurrences.defaultAssignee,
       assigneeName: users.name,
+      groupId: recurrences.groupId,
+      groupName: groups.name,
       isAsap: recurrences.isAsap,
       rewardCents: recurrences.rewardCents,
       lastSpawnedOn: recurrences.lastSpawnedOn,
     })
     .from(recurrences)
     .leftJoin(users, eq(users.id, recurrences.defaultAssignee))
+    .leftJoin(groups, eq(groups.id, recurrences.groupId))
     .where(isNull(recurrences.archivedAt))
     .orderBy(asc(recurrences.title))
     .all()

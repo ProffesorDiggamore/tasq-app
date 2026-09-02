@@ -18,7 +18,22 @@ export const THEMES = {
 
 export type ThemeKey = keyof typeof THEMES;
 
+/**
+ * Appearance (light / dark / follow the device). 'system' is the default so a
+ * fresh board honors prefers-color-scheme; 'light' and 'dark' pin it. Board-wide
+ * like the accent, resolved to a concrete data-appearance attribute on <html>
+ * by an inline script in app/layout.tsx before first paint.
+ */
+export const APPEARANCES = {
+  system: { label: 'Auto' },
+  light: { label: 'Light' },
+  dark: { label: 'Dark' },
+} as const;
+
+export type AppearanceMode = keyof typeof APPEARANCES;
+
 const THEME_KEY = 'theme.accent';
+const APPEARANCE_KEY = 'theme.mode';
 
 export function getThemeKey(): ThemeKey {
   // The database does not exist yet during a first production build, which
@@ -35,6 +50,23 @@ export function getThemeKey(): ThemeKey {
 export function setThemeKey(key: string): boolean {
   if (!(key in THEMES)) return false;
   setSetting(THEME_KEY, key);
+  return true;
+}
+
+export function getAppearance(): AppearanceMode {
+  // Same build-time caveat as getThemeKey: no database during prerender.
+  try {
+    const stored = getSetting(APPEARANCE_KEY);
+    if (stored && stored in APPEARANCES) return stored as AppearanceMode;
+  } catch {
+    // Fall through to the default below.
+  }
+  return 'system';
+}
+
+export function setAppearance(mode: string): boolean {
+  if (!(mode in APPEARANCES)) return false;
+  setSetting(APPEARANCE_KEY, mode);
   return true;
 }
 

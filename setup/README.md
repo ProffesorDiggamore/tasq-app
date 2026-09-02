@@ -21,8 +21,9 @@ It will:
 4. Install dependencies, build, and run the 257 checks.
 5. Offer to stop the Mac sleeping.
 6. Install the background service and the nightly backup, and start them.
-7. Offer to turn on public HTTPS access through Tailscale, and wait for the
-   certificate.
+7. Offer to turn on public HTTPS access — a **Cloudflare Tunnel** (needs a
+   domain, never expires) or **Tailscale Funnel** (no domain) — and wait for
+   the certificate.
 8. Work out the shop-network address, tell the board about both addresses, and
    restart.
 9. Print the addresses and what to do next.
@@ -35,10 +36,16 @@ Safe to run again at any time. It never regenerates keys that already exist,
 never touches the database, and tells you what it found.
 
 ```bash
-bash setup/bootstrap.sh --yes           # no prompts, for a rebuild
-bash setup/bootstrap.sh --skip-funnel   # shop network only, no public access
-bash setup/bootstrap.sh --skip-power    # leave the sleep settings alone
+bash setup/bootstrap.sh --yes                  # no prompts, for a rebuild
+bash setup/bootstrap.sh --tunnel=cloudflare    # use a Cloudflare Tunnel
+bash setup/bootstrap.sh --tunnel=tailscale     # use Tailscale Funnel
+bash setup/bootstrap.sh --tunnel=none          # shop network only, no public access
+bash setup/bootstrap.sh --skip-power           # leave the sleep settings alone
 ```
+
+`--skip-funnel` still works as an alias for `--tunnel=none`. Cloudflare setup
+needs a terminal and a browser, so `--yes` unattended runs skip it — run
+`setup/cloudflared.sh` by hand afterward.
 
 ### When it finishes
 
@@ -54,7 +61,7 @@ that has been added to the home screen, on iOS 16.4 or newer.
 
 | | |
 | --- | --- |
-| Update it | `setup/deploy.sh` |
+| Update it | double-click `update.command` in the app folder (see below) |
 | Watch the log | `tail -f logs/server.log` |
 | Is it running | `launchctl print system/com.tasq.server \| grep state` |
 | Back up now | `setup/backup.sh` |
@@ -161,13 +168,21 @@ sudo pmset -a disablesleep 1  # laptops only
 it is on an external display and power. If the shop Mac is a laptop, leave it
 open, or use a desktop. Confirm with `pmset -g`.
 
-### Tailscale Funnel
-
-> Full walkthrough, start to finish: **[TAILSCALE.md](./TAILSCALE.md)** —
-> install, sign-in, certificates, phones, and troubleshooting.
+### Public HTTPS — Cloudflare Tunnel or Tailscale Funnel
 
 Web Push and PWA install both need real HTTPS with a certificate Apple and
-Google already trust. Funnel provides that, free. Self-signed will not work.
+Google already trust. Self-signed will not work. Two free ways to get one:
+
+| | Cloudflare Tunnel | Tailscale Funnel |
+| --- | --- | --- |
+| Domain needed | Yes (any domain on a Cloudflare account) | No |
+| Expires | Never | Device key every ~180 days unless disabled |
+| Router port to open | No | No |
+| Walkthrough | **[CLOUDFLARE.md](./CLOUDFLARE.md)** | **[TAILSCALE.md](./TAILSCALE.md)** |
+| Script | `setup/cloudflared.sh` | built into `bootstrap.sh` |
+
+The rest of this section covers Tailscale; the Cloudflare path is in
+[CLOUDFLARE.md](./CLOUDFLARE.md).
 
 ```bash
 brew install --cask tailscale
@@ -265,6 +280,15 @@ lose this data, point Time Machine or a cloud sync folder at `backups/` too.
 
 ### Updating
 
+**For the shop owner — no terminal needed.** When Landon sends a new version
+(a folder called `Tasq-update`, or a `Tasq-update` zip), put it on the Desktop
+or in Downloads, then double-click **`update.command`** in the app folder. It
+backs up your data first, installs the new version, checks it starts, and
+leaves the board running the way it was. If anything goes wrong it puts your
+old version back — nothing is lost.
+
+**For developers** (git checkout, terminal):
+
 ```bash
 setup/deploy.sh
 ```
@@ -297,7 +321,14 @@ startup and quietly runs with notifications off.
 **Funnel worked, then stopped**
 `tailscale funnel status`. If empty, re-run `sudo tailscale funnel --bg 4744`,
 and check the machine's key has not expired in the admin console — expiry
-disables Funnel silently.
+disables Funnel silently. (Disable key expiry on that machine to stop this
+recurring; or use a Cloudflare Tunnel, which has no such clock.)
+
+**Cloudflare Tunnel worked, then stopped**
+`launchctl print system/com.tasq.tunnel | grep state` and
+`tail -n 40 logs/tunnel.error.log`. Usually the credentials file moved or the
+`config.yml` hostname stopped matching the DNS record. See
+[CLOUDFLARE.md](./CLOUDFLARE.md).
 
 **Start over without losing data**
 `setup/uninstall.sh` then `setup/bootstrap.sh`. The database and backups are

@@ -18,7 +18,7 @@ echo "${BOLD}Removing Tasq's background jobs${RESET}"
 echo "${DIM}Your database and backups stay put.${RESET}"
 echo
 
-for job in server backup; do
+for job in server backup tunnel; do
   LABEL="com.tasq.$job"
   if launchctl print "system/$LABEL" >/dev/null 2>&1; then
     sudo launchctl bootout "system/$LABEL" 2>/dev/null || true
@@ -33,6 +33,14 @@ done
 if command -v tailscale >/dev/null 2>&1 && tailscale funnel status 2>/dev/null | grep -q "$PORT"; then
   sudo tailscale funnel off >/dev/null 2>&1 || sudo tailscale funnel "$PORT" off >/dev/null 2>&1 || true
   echo "  turned off public access"
+fi
+
+if [ -f "$HOME/.cloudflared/config.yml" ]; then
+  echo
+  echo "The Cloudflare Tunnel job is gone, but the tunnel and its DNS record"
+  echo "still exist in your Cloudflare account. To remove those too:"
+  echo "  cloudflared tunnel delete tasq"
+  echo "  then delete the DNS record in the Cloudflare dashboard (DNS → Records)"
 fi
 
 echo

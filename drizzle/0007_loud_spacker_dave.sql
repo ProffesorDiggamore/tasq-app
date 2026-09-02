@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `has_toured` integer DEFAULT false NOT NULL;

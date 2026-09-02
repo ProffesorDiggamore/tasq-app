@@ -1,7 +1,9 @@
 import 'server-only';
-import { and, desc, eq, gte, lt, type SQL } from 'drizzle-orm';
-import { db } from '@/lib/db';
+import fs from 'node:fs';
+import { and, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
+import { db, sqlite } from '@/lib/db';
 import { activityLog, users } from '@/lib/db/schema';
+import { DB_PATH } from '@/lib/paths';
 import { localDateString, localWallClockToUtc, localWeekday } from '@/lib/time';
 import type { HistoryDay, HistoryRange } from '@/lib/history-types';
 
@@ -29,6 +31,8 @@ export interface HistoryQuery {
   range: HistoryRange;
   /** Null means everyone. */
   actorId: number | null;
+  /** Free-text search across what happened and who did it. */
+  text?: string;
   limit?: number;
 }
 
@@ -42,6 +46,13 @@ export function loadHistory(
   const from = rangeStart(query.range, now);
   if (from !== null) filters.push(gte(activityLog.createdAt, from));
   if (query.actorId !== null) filters.push(eq(activityLog.actorId, query.actorId));
+  if (query.text) {
+    const needle = `%${query.text.replace(/[%_]/g, (c) => `\\${c}`)}%`;
+    // Summary covers what happened; the join covers who did it.
+    filters.push(
+      sql`(activity_log.summary LIKE ${needle} ESCAPE '\\' OR ${users.name} LIKE ${needle})`,
+    );
+  }
 
   const rows = db
     .select({
@@ -80,5 +91,61 @@ export function loadHistory(
 /** Older than the retained window; used only to caption an empty result. */
 export function hasAnyHistory(): boolean {
   return db.select({ id: activityLog.id }).from(activityLog).limit(1).all().length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Retention. History is for "who did what recently", not forever: entries
+// leave after a month on their own, and if the database ever grows past 1 GB
+// anyway, the oldest quarter of the log is dropped to bring it back down.
+// Both checks are cheap and gated to run at most once an hour.
+
+const MONTH_MS = 30 * DAY_MS;
+const STORAGE_CAP_BYTES = 1_000_000_000;
+const PRUNE_EVERY_MS = 60 * 60 * 1000;
+
+let lastPruneAt = 0;
+
+/** Test hook: open the hourly gate so a verify script can call prune twice. */
+export function __resetPruneGateForTests(): void {
+  lastPruneAt = 0;
+}
+
+export function pruneHistory(now: number = Date.now()): { removed: number; vacuumed: boolean } {
+  if (now - lastPruneAt < PRUNE_EVERY_MS) return { removed: 0, vacuumed: false };
+  lastPruneAt = now;
+
+  const result = db
+    .delete(activityLog)
+    .where(lt(activityLog.createdAt, now - MONTH_MS))
+    .run();
+  let removed = result.changes;
+  let vacuumed = false;
+
+  if (fs.statSync(DB_PATH).size > STORAGE_CAP_BYTES) {
+    // The cap tripped even with everything older than a month gone, so the
+    // recent log alone is huge. Drop the oldest quarter. VACUUM only here:
+    // it rewrites the whole database file, which is wasted work on the
+    // routine monthly prune.
+    const total = db.select({ n: sql<number>`count(*)` }).from(activityLog).get()?.n ?? 0;
+    if (total > 0) {
+      const drop = db
+        .delete(activityLog)
+        .where(
+          sql`activity_log.id IN (SELECT id FROM activity_log ORDER BY created_at ASC LIMIT ${Math.ceil(total / 4)})`,
+        )
+        .run();
+      removed += drop.changes;
+      sqlite.exec('VACUUM');
+      vacuumed = true;
+      console.log(
+        `[tasq] history exceeded the 1 GB storage cap — dropped the oldest ${drop.changes} entr${drop.changes === 1 ? 'y' : 'ies'} and compacted.`,
+      );
+    }
+  }
+
+  if (removed > 0 && !vacuumed) {
+    console.log(`[tasq] pruned ${removed} history entr${removed === 1 ? 'y' : 'ies'} older than a month.`);
+  }
+  return { removed, vacuumed };
 }
 

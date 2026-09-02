@@ -1,8 +1,8 @@
 import 'server-only';
 import webpush, { type PushSubscription as WebPushSubscription } from 'web-push';
-import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { pushSubscriptions, tasks, users } from '@/lib/db/schema';
+import { groupMembers, pushSubscriptions, tasks, users } from '@/lib/db/schema';
 import type { NotifyIntent } from '@/lib/board-types';
 import { getSetting, setSettingIfAbsent } from '@/lib/settings';
 
@@ -150,6 +150,25 @@ function resolveAudience(intent: NotifyIntent): number[] {
         .where(and(eq(users.isAdmin, true), isNull(users.archivedAt)))
         .all()
         .map((u) => u.id);
+    case 'group': {
+      // A tab is a wall the rest of the shop cannot see over, so an ASAP posted
+      // there must not push its title to people who are not on it. Admins are
+      // included because every tab is already theirs on the board itself.
+      const { groupId, except } = intent.audience;
+      const rows = db
+        .selectDistinct({ id: users.id })
+        .from(users)
+        .leftJoin(groupMembers, eq(groupMembers.userId, users.id))
+        .where(
+          and(
+            isNull(users.archivedAt),
+            or(eq(groupMembers.groupId, groupId), eq(users.isAdmin, true)),
+            except === undefined ? undefined : ne(users.id, except),
+          ),
+        )
+        .all();
+      return rows.map((u) => u.id);
+    }
     case 'everyone': {
       const except = intent.audience.except;
       const rows = db

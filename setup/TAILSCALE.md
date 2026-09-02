@@ -54,6 +54,12 @@ This is what lets Tailscale issue a real certificate (Let's Encrypt) for your
 board's address. Nothing else in the admin console needs changing for a basic
 setup.
 
+**Do this one extra toggle while you're in there:** go to the **Machines**
+page, find this Mac, open its `…` menu and choose **Disable key expiry**.
+Without it, Tailscale expires the Mac's key after about six months and the
+funnel silently stops. With it, the setup is permanent — nothing to renew,
+ever.
+
 ## Step 3 — Publish the board
 
 On the Mac that runs the board:

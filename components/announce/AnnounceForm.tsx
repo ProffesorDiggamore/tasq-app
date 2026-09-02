@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, useTransition } from 'react';
+import { useCallback, useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { sendAnnouncementAction } from '@/app/announce-actions';
 import type { PersonSummary } from '@/lib/auth/results';
 import { haptic } from '@/lib/haptics';
+import { usePress } from '@/lib/use-press';
 import { SPRING_ENTER } from '@/lib/motion';
 
 const MAX_LENGTH = 280;
@@ -32,16 +33,24 @@ export function AnnounceForm({ people }: { people: PersonSummary[] }) {
         haptic('commit');
         setSent(true);
         setText('');
-        window.setTimeout(() => {
-          router.push('/');
-          router.refresh();
-        }, 900);
       } else {
         haptic('error');
         setMessage(result.message);
       }
     });
   }, [target, text, router]);
+
+  // Hold the "Sent" state for a beat, then head home. Kept in an effect so
+  // leaving the screen early cancels the navigation instead of firing it
+  // after the form is gone.
+  useEffect(() => {
+    if (!sent) return;
+    const id = window.setTimeout(() => {
+      router.push('/');
+      router.refresh();
+    }, 900);
+    return () => window.clearTimeout(id);
+  }, [sent, router]);
 
   return (
     <div className="mx-auto w-full max-w-2xl" style={{ paddingInline: 'var(--gutter)' }}>
@@ -71,7 +80,7 @@ export function AnnounceForm({ people }: { people: PersonSummary[] }) {
         onChange={(e) => setText(e.target.value.slice(0, MAX_LENGTH))}
         rows={4}
         maxLength={MAX_LENGTH}
-        placeholder="What does everyone need to know?"
+        placeholder=""
         aria-label="Announcement message"
         className="material-card mt-2 w-full resize-none rounded-[var(--radius-control)] px-3.5 py-3 outline-none"
         style={{ color: 'var(--text)' }}
@@ -138,12 +147,16 @@ function Chip({
   onPress: () => void;
   children?: React.ReactNode;
 }) {
+  // Scale-only press: these pills keep a colour of their own when selected, so
+  // the dim-to-grey press tint would fight it. The shrink carries the feedback.
+  const { pressed, handlers } = usePress(onPress);
   return (
     <button
       type="button"
-      onClick={onPress}
+      {...handlers}
       aria-pressed={selected}
-      className="tap-target type-callout flex items-center gap-2 rounded-full px-3.5 disabled:opacity-50"
+      data-pressed={pressed ? '' : undefined}
+      className="press-scale tap-target type-callout flex items-center gap-2 rounded-full px-3.5 disabled:opacity-50"
       style={{
         minHeight: 38,
         background: selected ? 'var(--accent)' : 'var(--surface-strong)',

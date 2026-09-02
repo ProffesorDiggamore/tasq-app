@@ -32,8 +32,6 @@ import { haptic } from '@/lib/haptics';
 
 /** How often a board left open on the shop wall pulls fresh state. */
 const POLL_MS = 30_000;
-/** Relative times ("in 20 min") drift, so they re-render on their own clock. */
-const CLOCK_MS = 30_000;
 
 export interface Viewer {
   id: number;
@@ -64,13 +62,10 @@ export function Board({
   const [now, setNow] = useState(serverNow);
   const toastSeq = useRef(0);
 
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), CLOCK_MS);
-    return () => window.clearInterval(id);
-  }, []);
-
   // A shared board has to notice what other people did. Polling pauses while the
-  // tab is hidden and catches up the moment it comes back.
+  // tab is hidden and catches up the moment it comes back. The same tick also
+  // advances the clock that relative times ("in 20 min") read from — one timer,
+  // not two, so the whole board re-renders once per interval, not twice.
   useEffect(() => {
     let timer = 0;
     const tick = () => {
@@ -102,7 +97,12 @@ export function Board({
   }, [toast]);
 
   const handle = useCallback(
-    (taskId: number, run: () => Promise<TaskActionResult>, successText?: string) => {
+    (
+      taskId: number,
+      run: () => Promise<TaskActionResult>,
+      successText?: string,
+      tone: ToastMessage['tone'] = 'info',
+    ) => {
       setBusyTaskId(taskId);
       startTransition(async () => {
         const result = await run();
@@ -110,7 +110,7 @@ export function Board({
 
         if (result.ok) {
           haptic('commit');
-          if (successText) say(successText);
+          if (successText) say(successText, tone);
           router.refresh();
           return;
         }
@@ -143,7 +143,9 @@ export function Board({
           handle(task.id, () => claimTaskAction(task.id), `"${task.title}" is yours.`);
           break;
         case 'complete':
-          handle(task.id, () => completeTaskAction(task.id));
+          // The one action that deserves a micro-reward: the toast arrives with
+          // a checkmark pop (components/board/Toast.tsx).
+          handle(task.id, () => completeTaskAction(task.id), 'Marked done.', 'success');
           setOpenTaskId(null);
           break;
         case 'reopen':
@@ -198,6 +200,7 @@ export function Board({
     now,
     onOpen: setOpenTaskId,
     onAction,
+    onToast: say,
   };
 
   return (
@@ -206,73 +209,89 @@ export function Board({
         className="mx-auto w-full max-w-5xl pb-32"
         style={{ paddingInline: 'var(--gutter)' }}
       >
-        <BoardRow
-          title="ASAP"
-          accent="asap"
-          badge={board.asapCount}
-          count={board.asap.length}
-          emptyMessage="Nothing urgent right now."
-        >
-          <AnimatePresence initial={false} mode="popLayout">
-            {board.asap.map((task, i) => (
-              <StaggeredCard key={task.id} index={i}>
-                <TaskCard
-                  task={task}
-                  emphasis
-                  busy={busyTaskId === task.id}
-                  {...cardProps}
-                />
-              </StaggeredCard>
-            ))}
-          </AnimatePresence>
-        </BoardRow>
+        {/* ASAP, then the open pool, then what is yours: urgency first, then the
+            work anyone can take, then the work already spoken for. The three
+            are wrapped so the walkthrough can spotlight them as one thing —
+            they are one idea, and pointing at them one at a time said less. */}
+        <div data-tour="rows">
+          <BoardRow
+            title="ASAP"
+            accent="asap"
+            badge={board.asapCount}
+            count={board.asap.length}
+            emptyMessage="Nothing urgent right now."
+            anchor="row-asap"
+          >
+            <AnimatePresence initial={false} mode="popLayout">
+              {board.asap.map((task, i) => (
+                <StaggeredCard key={task.id} index={i} anchor={i === 0 ? 'card' : undefined}>
+                  <TaskCard
+                    task={task}
+                    emphasis
+                    busy={busyTaskId === task.id}
+                    {...cardProps}
+                  />
+                </StaggeredCard>
+              ))}
+            </AnimatePresence>
+          </BoardRow>
 
-        <BoardRow
-          title="Your tasks"
-          badge={board.awaitingYou}
-          count={board.mine.length}
-          emptyMessage="Nothing assigned to you."
-        >
-          <AnimatePresence initial={false} mode="popLayout">
-            {board.mine.map((task) => (
-              <TaskCard key={task.id} task={task} busy={busyTaskId === task.id} {...cardProps} />
-            ))}
-          </AnimatePresence>
-        </BoardRow>
+          <BoardRow
+            title="Up for grabs"
+            count={board.pool.length}
+            emptyMessage="The pool is empty."
+            anchor="row-grabs"
+          >
+            <AnimatePresence initial={false} mode="popLayout">
+              {board.pool.map((task, i) => (
+                <RowCard key={task.id} anchor={i === 0 ? 'card' : undefined}>
+                  <TaskCard task={task} busy={busyTaskId === task.id} {...cardProps} />
+                </RowCard>
+              ))}
+            </AnimatePresence>
+          </BoardRow>
 
-        <BoardRow
-          title="Up for grabs"
-          count={board.pool.length}
-          emptyMessage="The pool is empty."
-        >
-          <AnimatePresence initial={false} mode="popLayout">
-            {board.pool.map((task) => (
-              <TaskCard key={task.id} task={task} busy={busyTaskId === task.id} {...cardProps} />
-            ))}
-          </AnimatePresence>
-        </BoardRow>
+          <BoardRow
+            title="Your tasks"
+            badge={board.awaitingYou}
+            count={board.mine.length}
+            emptyMessage="Nothing assigned to you."
+          >
+            <AnimatePresence initial={false} mode="popLayout">
+              {board.mine.map((task, i) => (
+                <RowCard key={task.id} anchor={i === 0 ? 'card' : undefined}>
+                  <TaskCard task={task} busy={busyTaskId === task.id} {...cardProps} />
+                </RowCard>
+              ))}
+            </AnimatePresence>
+          </BoardRow>
+        </div>
 
         {board.recurring.length > 0 ? (
           <BoardRow title="Today's recurring" count={board.recurring.length}>
             <AnimatePresence initial={false} mode="popLayout">
-              {board.recurring.map((task) => (
-                <TaskCard key={task.id} task={task} busy={busyTaskId === task.id} {...cardProps} />
+              {board.recurring.map((task, i) => (
+                <RowCard key={task.id} anchor={i === 0 ? 'card' : undefined}>
+                  <TaskCard task={task} busy={busyTaskId === task.id} {...cardProps} />
+                </RowCard>
               ))}
             </AnimatePresence>
           </BoardRow>
         ) : null}
 
         {board.done.length > 0 ? (
-          <BoardRow title="Done today" collapsible defaultOpen={false} count={board.done.length}>
+          <BoardRow
+            title="Done today"
+            collapsible
+            defaultOpen={false}
+            count={board.done.length}
+            anchor="row-done"
+          >
             <AnimatePresence initial={false} mode="popLayout">
               {board.done.map((task) => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  muted
-                  busy={busyTaskId === task.id}
-                  {...cardProps}
-                />
+                <RowCard key={task.id}>
+                  <TaskCard task={task} muted busy={busyTaskId === task.id} {...cardProps} />
+                </RowCard>
               ))}
             </AnimatePresence>
           </BoardRow>
@@ -284,9 +303,11 @@ export function Board({
       <NotificationPrompt />
 
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
-        {viewer.isAdmin ? (
+        {/* Anyone on the board can post work now, and it lands on the tab they
+            are standing on — a task typed under Group 1 belongs to Group 1. */}
         <PressableLink
-          href="/new"
+          href={board.groupId === null ? '/new' : `/new?g=${board.groupId}`}
+          data-tour="new-task"
           className="tap-target type-headline pointer-events-auto flex h-14 items-center gap-2 rounded-[var(--radius-pill)] px-6"
           style={{
             background: 'var(--accent)',
@@ -297,7 +318,6 @@ export function Board({
           <PlusIcon />
           New task
         </PressableLink>
-        ) : null}
       </div>
 
       <AnimatePresence>
@@ -323,14 +343,51 @@ export function Board({
 }
 
 /** Cards slide in with a tiny per-card delay — a board that loads in one
- *  motion reads as alive; a wall of simultaneous pop-ins reads as noise. */
-function StaggeredCard({ index, children }: { index: number; children: React.ReactNode }) {
+ *  motion reads as alive; a wall of simultaneous pop-ins reads as noise.
+ *  `layout="position"` lets the survivors glide to their new spot when a
+ *  neighbour is claimed or completed, instead of snapping. */
+function StaggeredCard({
+  index,
+  anchor,
+  children,
+}: {
+  index: number;
+  anchor?: string;
+  children: React.ReactNode;
+}) {
   return (
     <motion.div
+      layout="position"
+      data-tour={anchor}
       initial={{ opacity: 0, y: 14, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.97 }}
       transition={{ ...SPRING_ENTER, delay: Math.min(index * 0.045, 0.35) }}
+      className="shrink-0"
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+/** A plain card wrapper for the non-ASAP rows: no entry stagger, but the same
+ *  spring-driven enter/exit and `layout` glide when the row reorders. */
+function RowCard({
+  anchor,
+  children,
+}: {
+  /** `data-tour` anchor for the guided tour (components/tour). */
+  anchor?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <motion.div
+      layout="position"
+      data-tour={anchor}
+      initial={{ opacity: 0, y: 12, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={SPRING_ENTER}
       className="shrink-0"
     >
       {children}

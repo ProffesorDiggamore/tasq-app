@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/ui/Button';
+import { Segmented } from '@/components/ui/Segmented';
 import { usePress } from '@/lib/use-press';
 import {
   archiveUserAction,
@@ -121,21 +122,33 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
                         onSave={(name) => run(() => renameUserAction(p.id, name))}
                       />
 
-                      <Row
-                        label="Admin"
-                        hint={
-                          p.isFounder
-                            ? 'The owner is always an admin.'
-                            : 'Sees Supply Requests and full History.'
-                        }
-                      >
-                        <Toggle
-                          checked={p.isAdmin}
+                      {/* A role is a choice between two named things, not a
+                          switch: "Admin off" never said what someone *is*. */}
+                      <div>
+                        <span className="type-label block pb-2 text-[var(--text-tertiary)]">
+                          Role
+                        </span>
+                        <Segmented
+                          label={`Role for ${p.name}`}
+                          value={p.isAdmin ? 'admin' : 'crew'}
                           disabled={pending || p.isFounder}
-                          label={`Admin access for ${p.name}`}
-                          onChange={(v) => run(() => setAdminAction(p.id, v))}
+                          onChange={(v) => run(() => setAdminAction(p.id, v === 'admin'))}
+                          options={[
+                            {
+                              value: 'crew',
+                              label: 'Crew',
+                              hint: 'Does the work. Cannot set bounties or see the money.',
+                            },
+                            {
+                              value: 'admin',
+                              label: 'Admin',
+                              hint: p.isFounder
+                                ? 'The owner is always an admin.'
+                                : 'Runs the board — people, tabs, bounties, history, access.',
+                            },
+                          ]}
                         />
-                      </Row>
+                      </div>
 
                       <div className="flex flex-wrap gap-2 pt-0.5">
                         <Button
@@ -183,7 +196,7 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="Name"
+            placeholder=""
             autoComplete="off"
             className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5"
             style={{
@@ -191,14 +204,16 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
               border: '1px solid var(--hairline)',
             }}
           />
-          <Row label="Admin" hint="Sees Supply Requests and full History.">
-            <Toggle
-              checked={newAdmin}
-              disabled={pending}
-              label="New person is an admin"
-              onChange={setNewAdmin}
-            />
-          </Row>
+          <Segmented
+            label="Role for the new person"
+            value={newAdmin ? 'admin' : 'crew'}
+            disabled={pending}
+            onChange={(v) => setNewAdmin(v === 'admin')}
+            options={[
+              { value: 'crew', label: 'Crew', hint: 'Does the work.' },
+              { value: 'admin', label: 'Admin', hint: 'Runs the board — people, money, access.' },
+            ]}
+          />
           <Button
             tone="primary"
             disabled={pending || newName.trim().length < 2}
@@ -303,67 +318,6 @@ function NameField({
     </div>
   );
 }
-
-function Row({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="min-w-0 flex-1">
-        <span className="type-body block">{label}</span>
-        {hint ? (
-          <span className="type-caption block text-[var(--text-tertiary)]">{hint}</span>
-        ) : null}
-      </span>
-      {children}
-    </div>
-  );
-}
-
-function Toggle({
-  checked,
-  disabled,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  disabled: boolean;
-  label: string;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className="relative shrink-0 rounded-full disabled:opacity-50"
-      style={{
-        width: 51,
-        height: 31,
-        background: checked ? 'var(--success)' : 'var(--surface-pressed)',
-        transition: 'background-color 160ms linear',
-      }}
-    >
-      <motion.span
-        className="absolute top-[2px] block rounded-full bg-white"
-        style={{ width: 27, height: 27, boxShadow: '0 1px 3px rgb(0 0 0 / 0.3)' }}
-        animate={{ x: checked ? 22 : 2 }}
-        transition={SPRING_SHEET}
-      />
-    </button>
-  );
-}
-
-
 
 function Chevron() {
   return (

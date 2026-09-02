@@ -31,9 +31,25 @@ export type ActivityVerb =
   | 'board.renamed'
   | 'board.rethemed'
   | 'user.recovered'
-  | 'announcement.sent';
+  | 'announcement.sent'
+  | 'group.created'
+  | 'group.updated'
+  | 'group.archived'
+  | 'payout.settled'
+  | 'device.approved'
+  | 'device.revoked'
+  | 'device.renamed'
+  | 'device.whitelist';
 
-export type SubjectType = 'task' | 'supply_request' | 'user' | 'recurrence' | 'setting' | 'announcement';
+export type SubjectType =
+  | 'task'
+  | 'supply_request'
+  | 'user'
+  | 'recurrence'
+  | 'setting'
+  | 'announcement'
+  | 'group'
+  | 'device';
 
 export interface LogEntry {
   /** Null when the scheduler, not a person, caused the event. */

@@ -2,42 +2,71 @@ import sharp from 'sharp';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const out = path.join(process.cwd(), 'public', 'icons');
-fs.mkdirSync(out, { recursive: true });
+/**
+ * Writes every derived form of the logo:
+ *   public/logo.svg        dark ink, for light surfaces and documents
+ *   public/logo-white.svg  knockout, for dark surfaces
+ *   public/logo-mark.svg   currentColor, for anything that sets its own ink
+ *   public/icons/*.png     home-screen and launcher icons
+ *   public/favicon.png     browser tab
+ *
+ * The geometry is read from lib/logo-mark.ts so there is exactly one copy of
+ * it in the repo. Re-run with `node scripts/generate-icons.mjs` after editing
+ * that file. The in-app <Logo/> imports the same module directly.
+ */
 
-// The mark is drawn as strokes rather than text so it never depends on a font
-// being installed on whatever machine builds this.
-const glyph = (scale) => {
-  const c = 256;
-  const s = (v) => c + (v - c) * scale;
-  return `
-    <path d="M${s(140)} ${s(150)} H${s(372)}"
-          stroke="#f5f5f7" stroke-width="${52 * scale}" fill="none"
-          stroke-linecap="round"/>
-    <path d="M${s(256)} ${s(150)} V${s(330)} Q${s(256)} ${s(388)} ${s(318)} ${s(392)} L${s(356)} ${s(392)}"
-          stroke="#ff9f0a" stroke-width="${52 * scale}" fill="none"
-          stroke-linecap="round"/>`;
-};
+const root = process.cwd();
+const pub = path.join(root, 'public');
+fs.mkdirSync(path.join(pub, 'icons'), { recursive: true });
 
-const svg = ({ radius, scale, bleed }) => `
+const source = fs.readFileSync(path.join(root, 'lib', 'logo-mark.ts'), 'utf8');
+const viewBox = /LOGO_VIEWBOX = '([^']+)'/.exec(source)?.[1];
+const paths = [...source.matchAll(/^\s{2}'(M[^']+)',$/gm)].map((m) => m[1]);
+if (!viewBox || paths.length === 0) {
+  throw new Error('Could not read the mark out of lib/logo-mark.ts — did its shape change?');
+}
+
+const DARK = '#141414';
+/** The app's own near-black, so an icon ground matches the shell behind it. */
+const GROUND = '#0b0b0d';
+
+/** The mark alone, no ground, sized to a square box. */
+const markSvg = (fill) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="${viewBox}" fill="${fill}">\n` +
+  paths.map((d) => `  <path d="${d}"/>`).join('\n') +
+  '\n</svg>\n';
+
+const files = [
+  ['logo.svg', markSvg(DARK)],
+  ['logo-white.svg', markSvg('#ffffff')],
+  ['logo-mark.svg', markSvg('currentColor')],
+];
+for (const [name, svg] of files) {
+  fs.writeFileSync(path.join(pub, name), svg);
+  console.log('wrote', name);
+}
+
+/**
+ * Icons need a ground — a transparent launcher icon reads as a hole. The app
+ * ships dark-first, so the ground is the shell's own near-black and the mark
+ * is knocked out of it. `bleed` fills to the very edge for maskable and Apple
+ * icons; otherwise the ground sits inside a rounded square. `scale` shrinks
+ * the mark into the launcher's 80% maskable safe zone.
+ */
+const icon = ({ radius, scale, bleed }) => `
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#17171b"/>
-      <stop offset="1" stop-color="#0b0b0d"/>
-    </linearGradient>
-  </defs>
   <rect x="${bleed ? 0 : 8}" y="${bleed ? 0 : 8}"
         width="${bleed ? 512 : 496}" height="${bleed ? 512 : 496}"
-        rx="${radius}" fill="url(#bg)"/>
-  ${bleed ? '' : `<rect x="8.5" y="8.5" width="495" height="495" rx="${radius}" fill="none" stroke="#ffffff" stroke-opacity="0.10"/>`}
-  ${glyph(scale)}
+        rx="${radius}" fill="${GROUND}"/>
+  <svg x="${(256 - 176 * scale).toFixed(1)}" y="${(256 - 176 * scale).toFixed(1)}"
+       width="${(352 * scale).toFixed(1)}" height="${(352 * scale).toFixed(1)}"
+       viewBox="${viewBox}" fill="#ffffff">
+    ${paths.map((d) => `<path d="${d}"/>`).join('\n    ')}
+  </svg>
 </svg>`;
 
-// Maskable icons get cropped to a circle by the launcher, so the mark shrinks
-// into the safe zone and the background bleeds to the very edge.
-const standard = Buffer.from(svg({ radius: 112, scale: 1, bleed: false }));
-const maskable = Buffer.from(svg({ radius: 0, scale: 0.72, bleed: true }));
+const standard = Buffer.from(icon({ radius: 112, scale: 1, bleed: false }));
+const maskable = Buffer.from(icon({ radius: 0, scale: 0.72, bleed: true }));
 
 const jobs = [
   ['icon-192.png', standard, 192],
@@ -45,14 +74,13 @@ const jobs = [
   ['icon-maskable-192.png', maskable, 192],
   ['icon-maskable-512.png', maskable, 512],
   // iOS ignores the manifest icons for the home screen and uses this one.
-  ['apple-touch-icon.png', Buffer.from(svg({ radius: 0, scale: 0.92, bleed: true })), 180],
+  ['apple-touch-icon.png', Buffer.from(icon({ radius: 0, scale: 0.92, bleed: true })), 180],
 ];
 
 for (const [name, buf, size] of jobs) {
-  await sharp(buf).resize(size, size).png({ compressionLevel: 9 }).toFile(path.join(out, name));
+  await sharp(buf).resize(size, size).png({ compressionLevel: 9 }).toFile(path.join(pub, 'icons', name));
   console.log('wrote', name, size);
 }
 
-// A favicon for the browser tab.
-await sharp(standard).resize(48, 48).png().toFile(path.join(process.cwd(), 'public', 'favicon.png'));
+await sharp(standard).resize(64, 64).png().toFile(path.join(pub, 'favicon.png'));
 console.log('wrote favicon.png');

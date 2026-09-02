@@ -1,10 +1,10 @@
 import 'server-only';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { setupCodes, users } from '@/lib/db/schema';
+import { setupCodes, users, type SetupCode } from '@/lib/db/schema';
 import { hashPin, isValidPinFormat } from '@/lib/auth/pin';
 import { setSetting, DEFAULT_ORG_NAME } from '@/lib/settings';
 import { logActivity } from '@/lib/activity';
@@ -47,6 +47,35 @@ export type RedeemResult =
 
 function hashCode(code: string): string {
   return createHash('sha256').update(code).digest('hex');
+}
+
+/**
+ * Constant-time comparison of the candidate code's hash against a stored hash.
+ * timingSafeEqual throws on length mismatch — hashes here are always 64 hex
+ * chars, so a length check first only guards against a corrupt row.
+ */
+function hashesMatch(computedHex: string, storedHex: string): boolean {
+  const computed = Buffer.from(computedHex, 'hex');
+  const stored = Buffer.from(storedHex, 'hex');
+  if (computed.length !== stored.length) return false;
+  return timingSafeEqual(computed, stored);
+}
+
+/**
+ * Finds the unused code row matching `raw`, comparing hashes in constant time.
+ * The candidate never rides into SQL as a comparison operand: the (very short)
+ * list of unused codes is read and each stored hash is checked with
+ * timingSafeEqual, so a probe of guess timing learns nothing about a code.
+ */
+function findUnusedCode(raw: string): SetupCode | undefined {
+  const code = normalizeCode(raw);
+  if (code === null) return undefined;
+  const computed = hashCode(code);
+  const rows = db.select().from(setupCodes).where(isNull(setupCodes.usedAt)).all();
+  for (const row of rows) {
+    if (hashesMatch(computed, row.codeHash)) return row;
+  }
+  return undefined;
 }
 
 /**
@@ -101,13 +130,75 @@ function codeFilePath(): string {
   return path.join(path.dirname(DB_PATH), CODE_FILE_NAME);
 }
 
+/** The single line the setup code is filed under, so it round-trips. */
+function codeFileBody(code: string): string {
+  return [
+    'One-time setup code for this board.',
+    'Redeem it at /setup to create the first admin account.',
+    `Code: ${code}`,
+    '',
+    'This file deletes itself once the board is set up.',
+    '',
+  ].join('\n');
+}
+
+/** Reads the plaintext code back out of setup-code.txt, or null if it is gone. */
+function readCodeFile(): string | null {
+  try {
+    const line = fs
+      .readFileSync(codeFilePath(), 'utf8')
+      .split('\n')
+      .find((l) => l.startsWith('Code:'));
+    return line ? normalizeCode(line.slice('Code:'.length)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function printSetupCode(code: string): void {
+  const line = `  Setup code:  ${code}`;
+  const width = Math.max(line.length, 52) + 2;
+  const rule = '─'.repeat(width);
+  const pad = (s: string) => `│${s}${' '.repeat(width - s.length)}│`;
+  console.log('');
+  console.log(`┌${rule}┐`);
+  console.log(pad('  First-time setup'));
+  console.log(pad(''));
+  console.log(pad(line));
+  console.log(pad(''));
+  console.log(pad('  Open /setup in a browser, enter this code, and'));
+  console.log(pad('  create your admin account. Also saved to'));
+  console.log(pad('  data/setup-code.txt next to the database.'));
+  console.log(`└${rule}┘`);
+  console.log('');
+}
+
 /**
- * Called once per server start from migrate.ts. Mints the activation code for
- * a board that has nobody on it yet — never for one that does, and never a
- * second while an unclaimed one exists.
+ * Called once per server start from migrate.ts. A board with nobody on it yet
+ * needs its activation code in front of whoever is watching the server window —
+ * so this prints on *every* boot until the board is claimed, not just the boot
+ * that mints the code. Minting still happens exactly once: an unused code is
+ * re-surfaced from setup-code.txt rather than replaced.
  */
 export function ensureSetupCode(): void {
-  if (hasActiveUsers() || hasUnusedCode('initial')) return;
+  if (hasActiveUsers()) return;
+
+  const file = codeFilePath();
+
+  if (hasUnusedCode('initial')) {
+    // A code was already minted on an earlier boot. Its plaintext only exists
+    // in the file — the database keeps a hash — so re-print from there.
+    const existing = readCodeFile();
+    if (existing) {
+      printSetupCode(existing);
+      return;
+    }
+    // The file was removed but the board was never set up, so the code is
+    // unrecoverable. Drop the dead row and mint a fresh one below.
+    db.delete(setupCodes)
+      .where(and(eq(setupCodes.kind, 'initial'), isNull(setupCodes.usedAt)))
+      .run();
+  }
 
   const code = generateCode();
   db.insert(setupCodes)
@@ -116,37 +207,15 @@ export function ensureSetupCode(): void {
 
   // Filed next to the database so a test run against a throwaway DB never
   // touches the live file, and a backup of data/ carries the code with it.
-  const file = codeFilePath();
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(
-      file,
-      [
-        'One-time setup code for this board.',
-        'Redeem it at /setup to create the first admin account.',
-        `Code: ${code}`,
-        '',
-        'This file deletes itself once the board is set up.',
-        '',
-      ].join('\n'),
-      { mode: 0o600 },
-    );
+    fs.writeFileSync(file, codeFileBody(code), { mode: 0o600 });
   } catch {
     // A read-only data directory must not stop the server from booting; the
     // code is still in the database and was printed below.
   }
 
-  console.log('');
-  console.log('┌──────────────────────────────────────────────────────┐');
-  console.log('│  First-time setup                                    │');
-  console.log(`│                                                      │`);
-  console.log(`│  Setup code:  ${code}                              │`);
-  console.log('│                                                      │');
-  console.log('│  Open /setup, enter this code, and create your       │');
-  console.log('│  admin account. Also saved to setup-code.txt         │');
-  console.log('│  next to the database.                               │');
-  console.log('└──────────────────────────────────────────────────────┘');
-  console.log('');
+  printSetupCode(code);
 }
 
 /**
@@ -177,14 +246,7 @@ export function mintRecoveryCode(): string | null {
 }
 
 export function verifySetupCode(raw: string): boolean {
-  const code = normalizeCode(raw);
-  if (code === null) return false;
-  const row = db
-    .select({ id: setupCodes.id })
-    .from(setupCodes)
-    .where(and(eq(setupCodes.codeHash, hashCode(code)), isNull(setupCodes.usedAt)))
-    .get();
-  return row !== undefined;
+  return findUnusedCode(raw) !== undefined;
 }
 
 /**
@@ -209,18 +271,15 @@ export async function redeemSetupCode(
   const code = normalizeCode(rawCode);
   if (code === null) return { ok: false, reason: 'bad-code' };
 
-  const pending = db
-    .select({ kind: setupCodes.kind })
-    .from(setupCodes)
-    .where(and(eq(setupCodes.codeHash, hashCode(code)), isNull(setupCodes.usedAt)))
-    .get();
-  if (!pending) {
+  // Single constant-time lookup; `code` is only hashed, never compared in SQL.
+  const claimed = findUnusedCode(code);
+  if (!claimed) {
     // Set-up-ness is answered before "invalid" so a stale initial code on a
     // live board gets the truthful rejection.
     if (hasActiveUsers()) return { ok: false, reason: 'already-set-up' };
     return { ok: false, reason: 'bad-code' };
   }
-  const recovery = pending.kind === 'recovery';
+  const recovery = claimed.kind === 'recovery';
   if (!recovery && hasActiveUsers()) return { ok: false, reason: 'already-set-up' };
   if (recovery && !hasActiveUsers()) return { ok: false, reason: 'bad-code' };
 
@@ -240,10 +299,14 @@ export async function redeemSetupCode(
     .returning({ id: users.id })
     .get();
 
+  // The claim is a conditional UPDATE that only matches this exact, still-
+  // unused row — SQLite serialises writes, so of two submissions racing each
+  // other exactly one wins, and a replayed code (recovery or initial) can never
+  // be consumed twice.
   const matched = db
     .update(setupCodes)
     .set({ usedAt: now })
-    .where(and(eq(setupCodes.codeHash, hashCode(code)), isNull(setupCodes.usedAt)))
+    .where(and(eq(setupCodes.id, claimed.id), isNull(setupCodes.usedAt)))
     .run();
 
   if (matched.changes === 0) {

@@ -287,32 +287,49 @@ Run it as yourself, not with `sudo` — it asks for your password at the three
 steps that need root. It checks the machine, moves the app out of a
 TCC-protected folder if that is where it is, generates the secrets, builds,
 runs the checks, installs the launchd jobs, offers to stop the Mac sleeping,
-offers to turn on Tailscale Funnel, and prints the addresses. Re-running is
+offers to turn on a public HTTPS tunnel, and prints the addresses. Re-running is
 safe: it never regenerates keys that already exist and never touches the
 database.
 
 ```bash
-setup/deploy.sh      # update: pull, build, verify, restart
+update.command       # update: double-click this — backs up, installs, restarts
+setup/deploy.sh      # developer update: pull, build, verify, restart
 setup/uninstall.sh   # remove the jobs; leaves the database and backups alone
 ```
 
+For the shop owner, updating is one double-click: put the `Tasq-update` folder
+or zip Landon sends on the Desktop or in Downloads, double-click
+`update.command` in the app folder, and wait. It backs up first, and if
+anything fails it puts the old version back untouched.
+
 `setup/README.md` has the full manual walkthrough behind that, plus
-troubleshooting. `setup/TAILSCALE.md` is the step-by-step guide for putting the
-board on phones through Tailscale Funnel — public HTTPS for free, and the thing
-notifications depend on.
+troubleshooting. Public HTTPS — which Web Push and Add-to-Home-Screen both
+require — comes from one of two free tunnels, each with a step-by-step guide:
+
+- **`setup/CLOUDFLARE.md`** — a Cloudflare Tunnel. Needs a domain on a
+  Cloudflare account; nothing expires. `bootstrap.sh --tunnel=cloudflare`, or
+  `setup/cloudflared.sh`.
+- **`setup/TAILSCALE.md`** — Tailscale Funnel. No domain, but each device's key
+  expires after ~180 days unless you disable that in the admin console.
+  `bootstrap.sh --tunnel=tailscale`.
 
 ## Notes on the two access paths
 
-The board is served over HTTPS through Tailscale Funnel and over plain HTTP on
-the shop LAN when the internet is down. Because of that:
+The board is served over HTTPS through the tunnel and over plain HTTP on the
+shop LAN when the internet is down. Because of that:
 
 - The session cookie is **not** `Secure` by default, or the LAN fallback would
   never keep anyone signed in. Set `TASQ_COOKIE_SECURE=true` if you ever serve
   the board over HTTPS only.
-- Cookies are per-host, so signing in on the Funnel hostname and on the LAN IP
+- Cookies are per-host, so signing in on the tunnel hostname and on the LAN IP
   are two separate sessions. That is inherent to using both addresses.
-- Set `TASQ_ALLOWED_ORIGINS` to the Funnel hostname and the LAN address so
-  server actions accept requests from both.
+- Set `TASQ_ALLOWED_ORIGINS` to the tunnel hostname and the LAN address so
+  server actions accept requests from both. The setup scripts do this.
+- The per-address rate limits (setup-code guessing, login name-walking) key off
+  `X-Forwarded-For`, which only a trusted proxy sets. On the bare LAN address
+  that header is client-controlled, so those limits are best-effort there. The
+  real guarantee is the per-person PIN lockout in `lib/auth/throttle.ts`, which
+  is keyed by account and cannot be bypassed by rotating headers.
 
 ## Design
 

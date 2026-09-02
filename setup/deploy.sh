@@ -1,6 +1,11 @@
 #!/bin/bash
 # One command to update the board: pull, install, build, restart.
 #
+# NOTE FOR NON-TECHNICAL USERS (shop owners): do not use this. Double-click
+# `update.command` in the app folder instead — it takes the new folder or zip
+# Landon sends you, backs up your data, and does everything by itself. No
+# terminal knowledge needed. This script stays for developer / git workflows.
+#
 # Builds *before* restarting, so a build that fails leaves the running board
 # untouched instead of taking the shop down.
 set -euo pipefail

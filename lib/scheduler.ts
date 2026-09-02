@@ -1,6 +1,7 @@
 import 'server-only';
 import { spawnDueRecurrences } from '@/lib/recurrences';
 import { markOverdueTasks } from '@/lib/overdue';
+import { pruneHistory } from '@/lib/history';
 
 declare global {
   var __tasqScheduler: NodeJS.Timeout | undefined;
@@ -29,6 +30,8 @@ export function startScheduler(): void {
         console.log(`[tasq] spawned ${report.spawned} repeating task(s): ${report.titles.join(', ')}`);
       }
       void markOverdueTasks();
+      // Self-gated to once an hour internally; every minute is just a timestamp check.
+      pruneHistory();
     } catch (error) {
       // A scheduler that dies on one bad tick takes the whole board's repeating
       // work with it, so this logs and lives to try again next minute.

@@ -27,9 +27,24 @@ if [ -z "$NODE_BIN" ]; then
 fi
 NODE_DIR="$(dirname "$NODE_BIN")"
 
+RUN_HOME="$(dscl . -read "/Users/$RUN_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+[ -n "$RUN_HOME" ] || RUN_HOME="/Users/$RUN_USER"
+
+# The Cloudflare Tunnel job is optional — only installed when the shop user has
+# run setup/cloudflared.sh, which is what writes ~/.cloudflared/config.yml.
+CLOUDFLARED_BIN="$(sudo -u "$RUN_USER" -i bash -lc 'command -v cloudflared' 2>/dev/null || true)"
+CLOUDFLARED_DIR=""
+[ -n "$CLOUDFLARED_BIN" ] && CLOUDFLARED_DIR="$(dirname "$CLOUDFLARED_BIN")"
+
+JOBS="server backup"
+if [ -n "$CLOUDFLARED_BIN" ] && [ -f "$RUN_HOME/.cloudflared/config.yml" ]; then
+  JOBS="$JOBS tunnel"
+fi
+
 echo "App:  $APP_DIR"
 echo "User: $RUN_USER"
 echo "Node: $NODE_BIN"
+[ -n "$CLOUDFLARED_BIN" ] && echo "Tunnel: $CLOUDFLARED_BIN"
 
 case "$APP_DIR" in
   */Documents/*|*/Desktop/*|*/Downloads/*)
@@ -54,13 +69,16 @@ chmod +x "$APP_DIR"/setup/*.sh
 render() {
   sed -e "s|__APP_DIR__|$APP_DIR|g" \
       -e "s|__RUN_USER__|$RUN_USER|g" \
+      -e "s|__RUN_HOME__|$RUN_HOME|g" \
       -e "s|__NODE_DIR__|$NODE_DIR|g" \
+      -e "s|__CLOUDFLARED__|$CLOUDFLARED_BIN|g" \
+      -e "s|__CLOUDFLARED_DIR__|$CLOUDFLARED_DIR|g" \
       "$1" > "$2"
   chown root:wheel "$2"
   chmod 644 "$2"
 }
 
-for job in server backup; do
+for job in $JOBS; do
   LABEL="com.tasq.$job"
   TARGET="/Library/LaunchDaemons/$LABEL.plist"
 
@@ -99,8 +117,10 @@ for job in server backup; do
 done
 
 launchctl kickstart -k system/com.tasq.server
+case " $JOBS " in *" tunnel "*) launchctl kickstart -k system/com.tasq.tunnel ;; esac
 
 echo
 echo "Done. Check it came up:"
 echo "  launchctl print system/com.tasq.server | head -20"
 echo "  tail -f $APP_DIR/logs/server.log"
+case " $JOBS " in *" tunnel "*) echo "  tail -f $APP_DIR/logs/tunnel.log" ;; esac

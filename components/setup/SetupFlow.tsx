@@ -1,10 +1,12 @@
 'use client';
 
-import { useCallback, useState, useTransition } from 'react';
+import { useCallback, useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { Button } from '@/components/ui/Button';
+import { Logo } from '@/components/ui/Logo';
 import { PinKeypad } from '@/components/login/PinKeypad';
+import { SuccessCheck } from '@/components/ui/SuccessCheck';
 import {
   checkSetupCodeAction,
   completeSetupAction,
@@ -12,7 +14,7 @@ import {
 import { haptic } from '@/lib/haptics';
 import { SPRING_SHEET } from '@/lib/motion';
 
-type Stage = 'code' | 'details' | 'pin' | 'confirm';
+type Stage = 'code' | 'details' | 'pin' | 'confirm' | 'done';
 
 /**
  * First-run activation: the one-time code, the business name, the first admin
@@ -73,10 +75,10 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
         const result = await completeSetupAction(code, orgName, adminName, firstPin, pin);
         if (result.ok) {
           haptic('commit');
-          // Signed in server-side; land on the board, which is empty and
-          // waiting for the people they add next.
-          router.replace('/settings');
-          router.refresh();
+          // Signed in server-side. Hold on a checkmark for a beat so it is
+          // unmistakable it worked, then drop a new owner onto the board with
+          // the guided tour running; a recovering admin already knows the app.
+          setStage('done');
           return;
         }
         setStage('pin');
@@ -84,8 +86,19 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
         fail(result.message);
       });
     },
-    [stage, code, orgName, adminName, firstPin, router, fail],
+    [stage, code, orgName, adminName, firstPin, router, fail, mode],
   );
+
+  // The done-stage hold before navigating. Kept in an effect so leaving the
+  // screen early cancels it instead of navigating a screen that is gone.
+  useEffect(() => {
+    if (stage !== 'done') return;
+    const id = window.setTimeout(() => {
+      router.replace(mode === 'recovery' ? '/settings' : '/?tour=1');
+      router.refresh();
+    }, 1150);
+    return () => window.clearTimeout(id);
+  }, [stage, router, mode]);
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col items-center px-5">
@@ -99,11 +112,16 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
           >
-            <h1 className="type-display text-center">{mode === 'recovery' ? 'Recovery' : 'Welcome'}</h1>
+            <div className="flex justify-center text-[var(--text)]">
+              <Logo size={52} title="Tasq" />
+            </div>
+            <h1 className="type-display mt-5 text-center">
+              {mode === 'recovery' ? 'Recovery' : 'Welcome'}
+            </h1>
             <p className="type-callout mt-2 text-center text-[var(--text-secondary)]">
               {mode === 'recovery'
-                ? 'Enter the one-time recovery code to add a new admin.'
-                : 'Enter the one-time setup code to claim this board.'}
+                ? 'Enter the recovery code to add a new admin.'
+                : 'Enter the setup code to claim this board.'}
             </p>
 
             <input
@@ -116,7 +134,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
               autoComplete="off"
               spellCheck={false}
               maxLength={9}
-              placeholder="ABCD-2345"
+              placeholder=""
               aria-label="Setup code"
               className="material-card mt-8 w-full rounded-[var(--radius-control)] px-4 py-3.5 text-center text-2xl font-medium tracking-[0.2em] uppercase outline-none"
               style={{ color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}
@@ -147,8 +165,8 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
             <h1 className="type-display text-center">Make it yours</h1>
             <p className="type-callout mt-2 text-center text-[var(--text-secondary)]">
               {mode === 'recovery'
-                ? 'Who is the new admin? You become one the moment this finishes.'
-                : 'Name the board, then tell us who you are. You become its first admin.'}
+                ? 'Who is the new admin? You become one when this finishes.'
+                : 'Name the board, then tell us who you are. You become the first admin.'}
             </p>
 
             {mode === 'initial' ? (
@@ -164,7 +182,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
                   }}
                   maxLength={60}
                   autoComplete="organization"
-                  placeholder="Acme Rental"
+                  placeholder=""
                   aria-label="Business or team name"
                   className="material-card mt-2 w-full rounded-[var(--radius-control)] px-4 py-3.5 text-lg outline-none"
                   style={{ color: 'var(--text)' }}
@@ -185,7 +203,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
               }}
               maxLength={40}
               autoComplete="name"
-              placeholder="Chris"
+              placeholder=""
               aria-label="Your name"
               className="material-card mt-2 w-full rounded-[var(--radius-control)] px-4 py-3.5 text-lg outline-none"
               style={{ color: 'var(--text)' }}
@@ -215,6 +233,23 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
                 Back
               </Button>
             </div>
+          </motion.section>
+        ) : stage === 'done' ? (
+          <motion.section
+            key="done"
+            className="flex w-full flex-col items-center text-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+          >
+            <SuccessCheck size={84} label="Board ready" />
+            <h1 className="type-title mt-5">
+              {mode === 'recovery' ? "You're an admin now" : `${orgName.trim() || 'Your board'} is ready`}
+            </h1>
+            <p className="type-callout mt-2 text-[var(--text-secondary)]">
+              {mode === 'recovery' ? 'Opening Settings…' : 'Starting a quick tour…'}
+            </p>
           </motion.section>
         ) : (
           <motion.section

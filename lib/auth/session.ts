@@ -4,6 +4,7 @@ import { getIronSession } from 'iron-session';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { users, type User } from '@/lib/db/schema';
+import { TasqError } from '@/lib/errors';
 import { sessionOptions, type SessionData } from '@/lib/auth/session.config';
 
 export {
@@ -42,12 +43,12 @@ export async function currentUser(): Promise<User | null> {
 
 export async function requireUser(): Promise<User> {
   const user = await currentUser();
-  if (!user) throw new Error('NOT_AUTHENTICATED');
+  if (!user) throw new TasqError('TASQ-E0101');
   return user;
 }
 
 export async function requireAdmin(): Promise<User> {
   const user = await requireUser();
-  if (!user.isAdmin) throw new Error('NOT_AUTHORIZED');
+  if (!user.isAdmin) throw new TasqError('TASQ-E0102');
   return user;
 }

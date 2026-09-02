@@ -13,9 +13,12 @@
 # overwrites the database, and every step reports what it found.
 #
 # Flags:
-#   --yes         accept every prompt (unattended)
-#   --skip-funnel leave Tailscale alone (LAN-only install)
-#   --skip-power  leave the sleep settings alone
+#   --yes                accept every prompt (unattended)
+#   --tunnel=cloudflare  set up public HTTPS with a Cloudflare Tunnel
+#   --tunnel=tailscale    set up public HTTPS with Tailscale Funnel
+#   --tunnel=none         LAN-only install, no public access
+#   --skip-funnel        alias for --tunnel=none
+#   --skip-power         leave the sleep settings alone
 #
 set -euo pipefail
 
@@ -25,13 +28,16 @@ PREFERRED_HOME="/Users/Shared/tasq"
 ASSUME_YES=0
 SKIP_FUNNEL=0
 SKIP_POWER=0
+TUNNEL_CHOICE=""
 
 for arg in "$@"; do
   case "$arg" in
     --yes|-y) ASSUME_YES=1 ;;
+    --tunnel=cloudflare|--tunnel=tailscale) TUNNEL_CHOICE="${arg#--tunnel=}" ;;
+    --tunnel=none) SKIP_FUNNEL=1 ;;
     --skip-funnel) SKIP_FUNNEL=1 ;;
     --skip-power) SKIP_POWER=1 ;;
-    -h|--help) sed -n '3,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '3,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -283,11 +289,48 @@ fi
 
 FUNNEL_URL=""
 if [ "$SKIP_FUNNEL" -eq 1 ]; then
-  info "Skipping off-site access (--skip-funnel)"
+  info "Skipping off-site access (--tunnel=none)"
 else
   step "Setting up off-site access"
-  info "Tailscale Funnel gives the board a public HTTPS address, free."
-  info "Phone notifications and Add-to-Home-Screen both need it — plain HTTP will not do."
+  info "Phones need a real public HTTPS address for notifications and for"
+  info "Add-to-Home-Screen — plain HTTP will not do. Two free ways to get one:"
+  info "  • Cloudflare Tunnel — needs a domain on your Cloudflare account,"
+  info "    never expires, no router port to open"
+  info "  • Tailscale Funnel  — no domain needed, but each device's key"
+  info "    expires after ~180 days unless you turn that off in the admin console"
+  echo
+
+  if [ -z "$TUNNEL_CHOICE" ]; then
+    if [ "$ASSUME_YES" -eq 1 ] || [ ! -t 0 ]; then
+      # Cloudflare setup is interactive (browser sign-in). An unattended run
+      # can't do it, so fall back to the Tailscale path here and leave a note.
+      TUNNEL_CHOICE=tailscale
+      info "Unattended run — using the Tailscale path. For Cloudflare, run"
+      info "  bash $APP_DIR/setup/cloudflared.sh   afterward."
+    elif confirm "Use Cloudflare Tunnel? (answer no to use Tailscale Funnel instead)"; then
+      TUNNEL_CHOICE=cloudflare
+    else
+      TUNNEL_CHOICE=tailscale
+    fi
+  fi
+fi
+
+if [ "$SKIP_FUNNEL" -eq 0 ] && [ "$TUNNEL_CHOICE" = "cloudflare" ] && [ ! -t 0 ]; then
+  warn "Cloudflare Tunnel setup needs a terminal and a browser — skipping here."
+  info "Finish it later with: bash $APP_DIR/setup/cloudflared.sh"
+elif [ "$SKIP_FUNNEL" -eq 0 ] && [ "$TUNNEL_CHOICE" = "cloudflare" ]; then
+  info "Handing off to setup/cloudflared.sh — it will open a browser for sign-in."
+  if bash "$APP_DIR/setup/cloudflared.sh"; then
+    FUNNEL_URL="$(env_value TASQ_PUBLIC_URL || true)"
+    case "$FUNNEL_URL" in
+      https://*) ok "Public address: $FUNNEL_URL" ;;
+      *) FUNNEL_URL=""; warn "Tunnel finished but no https address landed in .env.local." ;;
+    esac
+  else
+    warn "Cloudflare Tunnel setup did not finish. Re-run it any time with:"
+    info "  bash $APP_DIR/setup/cloudflared.sh"
+  fi
+elif [ "$SKIP_FUNNEL" -eq 0 ] && [ "$TUNNEL_CHOICE" = "tailscale" ]; then
 
   if ! command -v tailscale >/dev/null 2>&1; then
     if [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]; then

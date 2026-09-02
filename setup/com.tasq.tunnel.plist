@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Cloudflare Tunnel for Tasq.
+
+  Only installed when setup/cloudflared.sh has been run — install.sh skips this
+  job unless ~/.cloudflared/config.yml exists. It gives the board a public
+  HTTPS address that survives reboots and never expires, which Web Push and
+  Add-to-Home-Screen both require.
+
+  install.sh substitutes the placeholders and copies this into
+  /Library/LaunchDaemons. Edit this file, not the installed copy, then re-run
+  install.sh.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tasq.tunnel</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__CLOUDFLARED__</string>
+        <string>tunnel</string>
+        <string>--config</string>
+        <string>__RUN_HOME__/.cloudflared/config.yml</string>
+        <string>--no-autoupdate</string>
+        <string>run</string>
+    </array>
+
+    <!-- Runs as the shop user so it reads that user's ~/.cloudflared. -->
+    <key>UserName</key>
+    <string>__RUN_USER__</string>
+    <key>GroupName</key>
+    <string>staff</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__CLOUDFLARED_DIR__:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <!-- cloudflared resolves its config and credentials relative to HOME. -->
+        <key>HOME</key>
+        <string>__RUN_HOME__</string>
+        <key>TUNNEL_ORIGIN_CERT</key>
+        <string>__RUN_HOME__/.cloudflared/cert.pem</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__APP_DIR__/logs/tunnel.log</string>
+    <key>StandardErrorPath</key>
+    <string>__APP_DIR__/logs/tunnel.error.log</string>
+</dict>
+</plist>

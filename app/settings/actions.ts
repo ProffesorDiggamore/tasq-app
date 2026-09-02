@@ -8,7 +8,7 @@ import { requireAdmin, requireUser } from '@/lib/auth/session';
 import { changeOwnPin } from '@/lib/change-pin';
 import { logActivity } from '@/lib/activity';
 import { getOrgName, setSetting } from '@/lib/settings';
-import { setThemeKey } from '@/lib/theme';
+import { setThemeKey, setAppearance } from '@/lib/theme';
 import { fail, ok, type ActionResult } from '@/lib/action-result';
 
 function cleanName(raw: string): string {
@@ -204,6 +204,21 @@ export async function setThemeAction(key: string): Promise<ActionResult> {
     subjectType: 'setting',
     subjectId: null,
     summary: `${admin.name} changed the theme`,
+  });
+  revalidatePath('/', 'layout');
+  return ok;
+}
+
+/** Light, dark, or follow the device — board-wide, like the accent. */
+export async function setAppearanceAction(mode: string): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  if (!setAppearance(mode)) return fail('That appearance does not exist.');
+  logActivity({
+    actorId: admin.id,
+    verb: 'board.rethemed',
+    subjectType: 'setting',
+    subjectId: null,
+    summary: `${admin.name} changed the appearance`,
   });
   revalidatePath('/', 'layout');
   return ok;

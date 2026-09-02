@@ -1,10 +1,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { eq } from 'drizzle-orm';
 import { requireUser } from '@/lib/auth/session';
+import { db } from '@/lib/db';
+import { users } from '@/lib/db/schema';
 import * as machine from '@/lib/task-machine';
 import { dispatchAll } from '@/lib/notify';
 import type { NewTaskInput, TaskActionResult } from '@/lib/board-types';
+import { ok, fail, type ActionResult } from '@/lib/action-result';
 
 /**
  * Thin wrappers: resolve who is asking, run the transition, revalidate. All the
@@ -68,4 +72,12 @@ export async function reopenTaskAction(taskId: number): Promise<TaskActionResult
 export async function cancelTaskAction(taskId: number): Promise<TaskActionResult> {
   const me = await requireUser();
   return settle(machine.cancelTask(me, taskId));
+}
+
+/** Marks the current user as having completed the board walkthrough. */
+export async function markTourCompleteAction(): Promise<ActionResult> {
+  const me = await requireUser();
+  if (me.hasToured) return ok;
+  db.update(users).set({ hasToured: true }).where(eq(users.id, me.id)).run();
+  return ok;
 }

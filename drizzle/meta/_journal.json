@@ -43,6 +43,41 @@
       "when": 1787710499606,
       "tag": "0005_reward_bounty",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787974437097,
+      "tag": "0006_same_mandrill",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1788049974408,
+      "tag": "0007_loud_spacker_dave",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788142936629,
+      "tag": "0008_living_alice",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1788144750283,
+      "tag": "0009_overconfident_firebrand",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1788144883661,
+      "tag": "0010_flimsy_morlun",
+      "breakpoints": true
     }
   ]
 }

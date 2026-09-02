@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/ui/Button';
+import { CheckRow } from '@/components/ui/CheckRow';
+import { Segmented } from '@/components/ui/Segmented';
 import { Rail } from '@/components/ui/Rail';
 import type { BoardTask, NewTaskInput } from '@/lib/board-types';
 import type { PersonSummary } from '@/lib/auth/results';
@@ -16,6 +18,7 @@ export function TaskEditor({
   task,
   people,
   viewerId,
+  viewerIsAdmin,
   busy,
   onCancel,
   onSave,
@@ -23,6 +26,7 @@ export function TaskEditor({
   task: BoardTask;
   people: PersonSummary[];
   viewerId: number;
+  viewerIsAdmin: boolean;
   busy: boolean;
   onCancel: () => void;
   onSave: (input: NewTaskInput) => void;
@@ -34,7 +38,7 @@ export function TaskEditor({
   const [reward, setReward] = useState(
     task.rewardCents === null ? '' : String(task.rewardCents / 100),
   );
-  const [hasDue, setHasDue] = useState(task.dueAt !== null);
+  const [timing, setTiming] = useState<'whenever' | 'due'>(task.dueAt !== null ? 'due' : 'whenever');
   const [dueLocal, setDueLocal] = useState(
     task.dueAt !== null ? toLocalInputValue(task.dueAt) : toLocalInputValue(Date.now() + 3600_000),
   );
@@ -120,6 +124,9 @@ export function TaskEditor({
         </AnimatePresence>
       </div>
 
+      {/* Bounties are money, and money is an owner-only decision. Everyone
+          else sees a fixed bounty; they cannot set or change one. */}
+      {viewerIsAdmin ? (
       <div>
         <span className="type-label block text-[var(--text-tertiary)]">Cash reward</span>
         <div className="mt-2 flex items-center gap-2">
@@ -133,30 +140,39 @@ export function TaskEditor({
             value={reward}
             onChange={(e) => setReward(e.target.value.replace(/[^0-9.]/g, '').slice(0, 7))}
             inputMode="decimal"
-            placeholder="0"
+            placeholder=""
             aria-label="Cash reward in dollars"
             className="tap-target type-headline w-28 rounded-[var(--radius-control)] px-3.5 py-2"
             style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
           />
         </div>
       </div>
+      ) : null}
 
-      <SwitchRow
+      <CheckRow
         label="ASAP"
         hint="Shows on the shared ASAP row for everyone."
         checked={isAsap}
         onChange={setIsAsap}
       />
 
-      <SwitchRow
-        label="Due by a certain time"
-        hint="Overdue tasks turn red and nudge whoever owns them."
-        checked={hasDue}
-        onChange={setHasDue}
-      />
+      {/* An existing task's schedule is edited on its own rule, so the editor
+          only offers the two states a one-off can be in. */}
+      <div>
+        <span className="type-label block pb-2 text-[var(--text-tertiary)]">When</span>
+        <Segmented
+          label="When it is due"
+          value={timing}
+          onChange={setTiming}
+          options={[
+            { value: 'whenever', label: 'Whenever', hint: 'No deadline on it.' },
+            { value: 'due', label: 'By a time', hint: 'Overdue turns it red and nudges whoever owns it.' },
+          ]}
+        />
+      </div>
 
       <AnimatePresence initial={false}>
-        {hasDue ? (
+        {timing === 'due' ? (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -192,7 +208,7 @@ export function TaskEditor({
               notes,
               assignedTo,
               isAsap,
-              dueLocal: hasDue ? dueLocal : null,
+              dueLocal: timing === 'due' ? dueLocal : null,
               rewardCents: parseRewardInput(reward),
             })
           }
@@ -200,48 +216,6 @@ export function TaskEditor({
           {busy ? 'Saving…' : 'Save changes'}
         </Button>
       </div>
-    </div>
-  );
-}
-
-function SwitchRow({
-  label,
-  hint,
-  checked,
-  onChange,
-}: {
-  label: string;
-  hint: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="min-w-0 flex-1">
-        <span className="type-body block">{label}</span>
-        <span className="type-caption block text-[var(--text-tertiary)]">{hint}</span>
-      </span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        onClick={() => onChange(!checked)}
-        className="relative shrink-0 rounded-full"
-        style={{
-          width: 51,
-          height: 31,
-          background: checked ? 'var(--success)' : 'var(--surface-pressed)',
-          transition: 'background-color 160ms linear',
-        }}
-      >
-        <motion.span
-          className="absolute top-[2px] block rounded-full bg-white"
-          style={{ width: 27, height: 27, boxShadow: '0 1px 3px rgb(0 0 0 / 0.3)' }}
-          animate={{ x: checked ? 22 : 2 }}
-          transition={SPRING_SHEET}
-        />
-      </button>
     </div>
   );
 }

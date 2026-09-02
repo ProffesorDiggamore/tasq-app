@@ -1,9 +1,20 @@
 import type { Metadata, Viewport } from 'next';
 import { MotionProvider } from '@/components/ui/MotionProvider';
 import { ServiceWorkerRegistrar } from '@/components/pwa/ServiceWorkerRegistrar';
+import { WaitingRoom } from '@/components/devices/WaitingRoom';
+import { deviceGate } from '@/lib/devices';
 import { getOrgName } from '@/lib/settings';
-import { themeStyle } from '@/lib/theme';
+import { getAppearance, themeStyle } from '@/lib/theme';
 import './globals.css';
+
+/**
+ * Resolves the stored appearance to a concrete data-appearance attribute on
+ * <html> before first paint, so a pinned light or dark board never flashes the
+ * other mode. 'system' (the default) reads prefers-color-scheme, and keeps
+ * following the device if the OS flips while the board is open. The stored mode
+ * is interpolated by the server; it is always one of three validated literals.
+ */
+const APPEARANCE_SCRIPT = `(function(){var d=document.documentElement,s=%MODE%;function r(){return s==='light'||s==='dark'?s:window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}d.setAttribute('data-appearance',r());try{window.matchMedia('(prefers-color-scheme: light)').addEventListener('change',function(){if(s==='system')d.setAttribute('data-appearance',r())})}catch(e){}})()`;
 
 /**
  * The business's own name wherever the browser or the OS says who this is.
@@ -47,12 +58,48 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // No database yet during `next build` prerender — 'system' stands in.
+  let appearance: string = 'system';
+  try {
+    appearance = getAppearance();
+  } catch {
+    // Build time only.
+  }
+
+  /**
+   * The device gate lives here rather than on each page because here is the one
+   * place every route already passes through — a page added later cannot forget
+   * to check. It is a no-op (and touches no table) unless an admin has turned
+   * the whitelist on. API routes do not render a layout, so they check for
+   * themselves; they already require a session either way.
+   */
+  let gate: Awaited<ReturnType<typeof deviceGate>> = { status: 'off', label: null };
+  try {
+    gate = await deviceGate();
+  } catch {
+    // Build time, or a database that is not up yet: fail open rather than
+    // bricking the board. The whitelist is a doorman, not the lock.
+  }
+  const shutOut = gate.status === 'pending' || gate.status === 'blocked';
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: APPEARANCE_SCRIPT.replace('%MODE%', JSON.stringify(appearance)),
+          }}
+        />
+      </head>
       <body style={themeStyle()}>
-        <MotionProvider>{children}</MotionProvider>
-        <ServiceWorkerRegistrar />
+        {shutOut ? (
+          <WaitingRoom label={gate.label} blocked={gate.status === 'blocked'} />
+        ) : (
+          <>
+            <MotionProvider>{children}</MotionProvider>
+            <ServiceWorkerRegistrar />
+          </>
+        )}
       </body>
     </html>
   );

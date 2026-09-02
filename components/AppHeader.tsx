@@ -61,13 +61,16 @@ export function AppHeader({
           <PressableLink
             href="/settings"
             aria-label="Settings"
+            data-tour="settings"
             className="tap-target -ml-2 flex items-center rounded-[var(--radius-pill)] px-2"
           >
             <SettingsIcon />
           </PressableLink>
         )}
 
-        <h1 className="type-headline flex-1 truncate text-center">{title}</h1>
+        <h1 className="type-headline flex-1 truncate text-center">
+          {title}
+        </h1>
 
         <SwitchUserButton
           name={userName}
@@ -107,6 +110,7 @@ function SwitchUserButton({
       {...handlers}
       disabled={disabled}
       data-pressed={pressed ? '' : undefined}
+      data-tour="switch-user"
       aria-label={`Switch user — currently ${name}`}
       className="press press-scale tap-target -mr-2 flex items-center gap-2 rounded-[var(--radius-pill)] px-2 disabled:opacity-50"
     >

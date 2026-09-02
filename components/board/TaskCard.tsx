@@ -4,6 +4,7 @@ import { memo } from 'react';
 import { motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/ui/Button';
+import { PhotoButton } from '@/components/board/PhotoButton';
 import { cardActions, dueDisplay, ownerLine, type CardAction } from '@/components/board/task-display';
 import type { BoardTask } from '@/lib/board-types';
 import { usePress } from '@/lib/use-press';
@@ -35,6 +36,8 @@ export interface TaskCardProps {
   now: number;
   onOpen: (taskId: number) => void;
   onAction: (action: CardAction, task: BoardTask) => void;
+  /** Surfaces photo toasts on the board's shared toast. */
+  onToast: (text: string, tone?: 'info' | 'error') => void;
 }
 
 function TaskCardImpl({
@@ -46,6 +49,7 @@ function TaskCardImpl({
   now,
   onOpen,
   onAction,
+  onToast,
 }: TaskCardProps) {
   const due = dueDisplay(task, now);
   const actions = cardActions(task, viewerId);
@@ -151,7 +155,7 @@ function TaskCardImpl({
           </span>
         </div>
 
-        {actions.length > 0 ? (
+        {actions.length > 0 || task.hasPhoto ? (
           <div className="relative mt-3 flex gap-2">
             {actions.map((action) => (
               <Button
@@ -164,6 +168,11 @@ function TaskCardImpl({
                 {ACTION_LABEL[action]}
               </Button>
             ))}
+            {/* Photo proof: a quiet camera ghost when empty, the thumbnail once
+                there is one. Always at the row's far end, never in the way. */}
+            <div className="ml-auto self-center">
+              <PhotoButton task={task} onToast={onToast} />
+            </div>
           </div>
         ) : null}
       </div>

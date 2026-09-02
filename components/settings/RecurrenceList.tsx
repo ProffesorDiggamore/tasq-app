@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/ui/Button';
+import { CheckRow } from '@/components/ui/CheckRow';
 import { Rail } from '@/components/ui/Rail';
 import { RepeatControls, type RepeatState } from '@/components/board/RepeatControls';
 import {
@@ -36,10 +37,13 @@ export function RecurrenceList({
   rules,
   people,
   viewerId,
+  canSetReward,
 }: {
   rules: RecurrenceSummary[];
   people: PersonSummary[];
   viewerId: number;
+  /** A bounty is spending, so the field is the admin's alone. */
+  canSetReward: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -78,8 +82,7 @@ export function RecurrenceList({
 
       {rules.length === 0 ? (
         <p className="type-callout mt-2.5 px-1 text-[var(--text-tertiary)]">
-          Nothing repeats yet. Turn on <span className="text-[var(--text)]">Repeats</span> when you
-          add a task.
+          Nothing repeats yet. Turn on <span className="text-[var(--text)]">Repeats</span> when adding a task.
         </p>
       ) : (
         <ul className="mt-2.5 flex flex-col gap-2">
@@ -116,6 +119,7 @@ export function RecurrenceList({
                       rule={rule}
                       people={people}
                       viewerId={viewerId}
+                      canSetReward={canSetReward}
                       busy={busy === rule.id}
                       onCancel={() => setEditing(null)}
                       onSave={(input) =>
@@ -215,29 +219,45 @@ function RuleRow({
         </motion.span>
       </button>
 
-      <button
-        type="button"
-        role="switch"
-        aria-checked={rule.active}
-        aria-label={`${rule.title} is ${rule.active ? 'on' : 'paused'}`}
-        disabled={busy}
-        onClick={onToggleActive}
-        className="relative mr-4 shrink-0 rounded-full disabled:opacity-50"
-        style={{
-          width: 51,
-          height: 31,
-          background: rule.active ? 'var(--success)' : 'var(--surface-pressed)',
-          transition: 'background-color 160ms linear',
-        }}
-      >
-        <motion.span
-          className="absolute top-[2px] block rounded-full bg-white"
-          style={{ width: 27, height: 27, boxShadow: '0 1px 3px rgb(0 0 0 / 0.3)' }}
-          animate={{ x: rule.active ? 22 : 2 }}
-          transition={SPRING_SHEET}
-        />
-      </button>
+      {/* A rule is running or paused — a word says that; a knob position has
+          to be decoded. Tapping it flips the state, same as the switch did. */}
+      <StatusPill active={rule.active} busy={busy} title={rule.title} onPress={onToggleActive} />
     </div>
+  );
+}
+
+/** Reads as a label, works as a button. */
+function StatusPill({
+  active,
+  busy,
+  title,
+  onPress,
+}: {
+  active: boolean;
+  busy: boolean;
+  title: string;
+  onPress: () => void;
+}) {
+  const { pressed, handlers } = usePress(onPress, busy);
+  return (
+    <button
+      type="button"
+      {...handlers}
+      disabled={busy}
+      data-pressed={pressed ? '' : undefined}
+      aria-label={`${title} is ${active ? 'running' : 'paused'} — tap to ${active ? 'pause' : 'resume'}`}
+      className="press-scale type-caption mr-3 shrink-0 rounded-[var(--radius-pill)] px-2.5 py-1 disabled:opacity-50"
+      style={{
+        background: active
+          ? 'color-mix(in srgb, var(--success) 18%, transparent)'
+          : 'var(--surface-strong)',
+        color: active ? 'var(--success)' : 'var(--text-tertiary)',
+        border: `1px solid ${active ? 'transparent' : 'var(--hairline)'}`,
+        fontWeight: 600,
+      }}
+    >
+      {active ? 'On' : 'Paused'}
+    </button>
   );
 }
 
@@ -245,6 +265,7 @@ function RuleEditor({
   rule,
   people,
   viewerId,
+  canSetReward,
   busy,
   onCancel,
   onSave,
@@ -253,12 +274,14 @@ function RuleEditor({
   rule: RecurrenceSummary;
   people: PersonSummary[];
   viewerId: number;
+  canSetReward: boolean;
   busy: boolean;
   onCancel: () => void;
   onSave: (input: {
     title: string;
     notes: string;
     defaultAssignee: number | null;
+    groupId: number | null;
     isAsap: boolean;
     pattern: RepeatState['pattern'];
     weekdays: number[];
@@ -344,35 +367,12 @@ function RuleEditor({
         </Rail>
       </div>
 
-      <div className="flex items-center gap-3">
-        <span className="min-w-0 flex-1">
-          <span className="type-body block">ASAP</span>
-          <span className="type-caption block text-[var(--text-tertiary)]">
-            Every copy lands on the shared ASAP row.
-          </span>
-        </span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={isAsap}
-          aria-label="ASAP"
-          onClick={() => setIsAsap(!isAsap)}
-          className="relative shrink-0 rounded-full"
-          style={{
-            width: 51,
-            height: 31,
-            background: isAsap ? 'var(--success)' : 'var(--surface-pressed)',
-            transition: 'background-color 160ms linear',
-          }}
-        >
-          <motion.span
-            className="absolute top-[2px] block rounded-full bg-white"
-            style={{ width: 27, height: 27, boxShadow: '0 1px 3px rgb(0 0 0 / 0.3)' }}
-            animate={{ x: isAsap ? 22 : 2 }}
-            transition={SPRING_SHEET}
-          />
-        </button>
-      </div>
+      <CheckRow
+        label="ASAP"
+        hint="Every copy lands on the shared ASAP row."
+        checked={isAsap}
+        onChange={setIsAsap}
+      />
 
       <div style={{ borderTop: '1px solid var(--hairline)' }} />
 
@@ -382,6 +382,7 @@ function RuleEditor({
         Copies already on the board keep what they say now — only the next one changes.
       </p>
 
+      {canSetReward ? (
       <div>
         <span className="type-label block text-[var(--text-tertiary)]">Cash reward</span>
         <div className="mt-2 flex items-center gap-2">
@@ -395,13 +396,14 @@ function RuleEditor({
             value={reward}
             onChange={(e) => setReward(e.target.value.replace(/[^0-9.]/g, '').slice(0, 7))}
             inputMode="decimal"
-            placeholder="0"
+            placeholder=""
             aria-label="Cash reward in dollars"
             className="tap-target type-headline w-28 rounded-[var(--radius-control)] px-3.5 py-2"
             style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
           />
         </div>
       </div>
+      ) : null}
 
       <div className="flex gap-2">
         <Button tone="quiet" grow disabled={busy} onPress={onCancel}>
@@ -416,12 +418,15 @@ function RuleEditor({
               title,
               notes,
               defaultAssignee: assignee,
+              // A rule keeps the tab it was made on; moving work between tabs
+              // is not something an edit here should do behind anyone's back.
+              groupId: rule.groupId,
               isAsap,
               pattern: repeat.pattern,
               weekdays: repeat.weekdays,
               dayOfMonth: repeat.pattern === 'monthly' ? repeat.dayOfMonth : null,
               spawnTime: repeat.spawnTime,
-              rewardCents: parseRewardInput(reward),
+              rewardCents: canSetReward ? parseRewardInput(reward) : rule.rewardCents,
             })
           }
         >

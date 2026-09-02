@@ -2,7 +2,9 @@ import {
   sqliteTable,
   integer,
   text,
+  blob,
   index,
+  primaryKey,
   uniqueIndex,
   type AnySQLiteColumn,
 } from 'drizzle-orm/sqlite-core';
@@ -21,7 +23,7 @@ export const users = sqliteTable(
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     name: text('name').notNull(),
-    /** Null until the person enrolls a PIN on their first login. */
+    /** Null until the person enrols a PIN on their first login. */
     pinHash: text('pin_hash'),
     /** Admin gates exactly two things: the Supply Requests queue and full History. */
     isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
@@ -31,11 +33,54 @@ export const users = sqliteTable(
      * must never be able to lock themselves out of their own purchase.
      */
     isFounder: integer('is_founder', { mode: 'boolean' }).notNull().default(false),
+    /** Has this user completed the first-run board walkthrough? */
+    hasToured: integer('has_toured', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull(),
     /** Soft delete. Archived people vanish from pickers but keep their history. */
     archivedAt: integer('archived_at'),
   },
   (t) => [uniqueIndex('users_name_unique').on(t.name)],
+);
+
+/**
+ * A tab across the top of the board. Only an admin creates one, renames one, or
+ * decides who is in it; everyone in it can post work to it and see what is
+ * there. The board always has one tab that is not a row here — the shared
+ * "Tasqs" tab, which is every task whose `groupId` is null.
+ */
+export const groups = sqliteTable(
+  'groups',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+    /** Left-to-right tab order. Ties break on id, so a new tab lands last. */
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdBy: integer('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer('created_at').notNull(),
+    /** Soft delete, like people: the tab disappears, its tasks keep their history. */
+    archivedAt: integer('archived_at'),
+  },
+  (t) => [uniqueIndex('groups_name_unique').on(t.name)],
+);
+
+/** Who can see and post to a group. Admins see every group without a row here. */
+export const groupMembers = sqliteTable(
+  'group_members',
+  {
+    groupId: integer('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    addedAt: integer('added_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.groupId, t.userId] }),
+    index('group_members_user_idx').on(t.userId),
+  ],
 );
 
 export const recurrences = sqliteTable(
@@ -49,6 +94,8 @@ export const recurrences = sqliteTable(
       .references(() => users.id),
     /** Null spawns the instance straight into the open pool ("Up for Grabs"). */
     defaultAssignee: integer('default_assignee').references(() => users.id),
+    /** Which tab the spawned instance lands on. Null is the shared Tasqs tab. */
+    groupId: integer('group_id').references((): AnySQLiteColumn => groups.id),
     isAsap: integer('is_asap', { mode: 'boolean' }).notNull().default(false),
     pattern: text('pattern').$type<RecurrencePattern>().notNull(),
     /** CSV of weekday numbers, 0 = Sunday. Used only when pattern = 'weekly'. */
@@ -85,6 +132,8 @@ export const tasks = sqliteTable(
       .references(() => users.id),
     /** Null means the task sits in the open pool and anyone can claim it. */
     assignedTo: integer('assigned_to').references(() => users.id),
+    /** Which tab it shows on. Null is the shared Tasqs tab everyone sees. */
+    groupId: integer('group_id').references((): AnySQLiteColumn => groups.id),
     isAsap: integer('is_asap', { mode: 'boolean' }).notNull().default(false),
     dueAt: integer('due_at'),
     status: text('status').$type<TaskStatus>().notNull().default('pending'),
@@ -100,6 +149,13 @@ export const tasks = sqliteTable(
     overdueNotifiedAt: integer('overdue_notified_at'),
     /** Bounty in whole cents offered by an admin; null means no cash value. */
     rewardCents: integer('reward_cents'),
+    /**
+     * When the admin settled this bounty with whoever finished it. Null on a
+     * task that still owes money; the Payouts screen is exactly the set of
+     * done, rewarded tasks where this is still null.
+     */
+    rewardPaidAt: integer('reward_paid_at'),
+    rewardPaidBy: integer('reward_paid_by').references((): AnySQLiteColumn => users.id),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },
@@ -108,6 +164,8 @@ export const tasks = sqliteTable(
     index('tasks_assigned_idx').on(t.assignedTo),
     index('tasks_asap_idx').on(t.isAsap),
     index('tasks_recurrence_idx').on(t.recurrenceId),
+    index('tasks_group_idx').on(t.groupId),
+    index('tasks_reward_unpaid_idx').on(t.rewardPaidAt),
   ],
 );
 
@@ -201,6 +259,46 @@ export const setupCodes = sqliteTable(
 );
 
 /**
+ * One browser that has asked to reach this board.
+ *
+ * The whitelist is off by default: a board on the shop LAN is already behind
+ * the front door. It is meant for the case where the board is published to the
+ * open internet through a tunnel — then having the address is no longer enough,
+ * and the owner has to let each device in by hand.
+ *
+ * A "device" is a browser profile, identified by an opaque random token in a
+ * long-lived cookie. Only the SHA-256 of that token is stored, so the table is
+ * useless to anyone who reads the database. A MAC address is not visible to a
+ * web page from any browser, and a fingerprint would be both weaker and
+ * creepier — this is a bearer token the owner explicitly approves.
+ */
+export const devices = sqliteTable(
+  'devices',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** SHA-256 of the cookie value. The token itself only exists in the browser. */
+    tokenHash: text('token_hash').notNull(),
+    /** Guessed from the user agent, and renameable — "Chris's iPhone". */
+    label: text('label').notNull(),
+    userAgent: text('user_agent'),
+    status: text('status')
+      .$type<'pending' | 'approved' | 'blocked'>()
+      .notNull()
+      .default('pending'),
+    firstSeenAt: integer('first_seen_at').notNull(),
+    lastSeenAt: integer('last_seen_at').notNull(),
+    approvedBy: integer('approved_by').references((): AnySQLiteColumn => users.id),
+    approvedAt: integer('approved_at'),
+    /** Last account signed in here — the thing that makes a row recognisable. */
+    lastUserId: integer('last_user_id').references((): AnySQLiteColumn => users.id),
+  },
+  (t) => [
+    uniqueIndex('devices_token_unique').on(t.tokenHash),
+    index('devices_status_idx').on(t.status),
+  ],
+);
+
+/**
  * Login throttle state, kept out of `users` so editing a person in Settings
  * never touches their lockout. A 4-digit PIN is only 10,000 combinations, so
  * this is the real defence — the hash is the second one.
@@ -217,7 +315,28 @@ export const loginThrottle = sqliteTable('login_throttle', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+/**
+ * Optional photo proof, one per task. The bytes live in SQLite as JPEG blobs:
+ * a full image (client-downscaled to ~1280px long edge, quality 70) and a small
+ * ~320px thumbnail the board serves, so opening the board never pulls the
+ * full-size photo. Replacement overwrites the row — never duplicated.
+ */
+export const taskPhotos = sqliteTable('task_photos', {
+  taskId: integer('task_id')
+    .primaryKey()
+    .references(() => tasks.id, { onDelete: 'cascade' }),
+  mime: text('mime').notNull().default('image/jpeg'),
+  bytes: blob('bytes', { mode: 'buffer' }).notNull(),
+  thumbBytes: blob('thumb_bytes', { mode: 'buffer' }).notNull(),
+  createdAt: integer('created_at').notNull(),
+  /** Changes on every replace — the <img> cache-busting query param. */
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export type User = typeof users.$inferSelect;
+export type Group = typeof groups.$inferSelect;
+export type Device = typeof devices.$inferSelect;
+export type GroupMember = typeof groupMembers.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
 export type Recurrence = typeof recurrences.$inferSelect;
 export type SupplyRequest = typeof supplyRequests.$inferSelect;

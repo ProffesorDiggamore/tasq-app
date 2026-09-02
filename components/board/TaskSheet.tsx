@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/ui/Button';
 import { TaskEditor } from '@/components/board/TaskEditor';
@@ -10,6 +10,7 @@ import { cardActions, dueDisplay, type CardAction } from '@/components/board/tas
 import type { BoardTask, NewTaskInput } from '@/lib/board-types';
 import type { PersonSummary } from '@/lib/auth/results';
 import { formatFull } from '@/lib/time';
+import { SPRING_ENTER } from '@/lib/motion';
 
 export interface TaskSheetProps {
   task: BoardTask;
@@ -121,6 +122,7 @@ export function TaskSheet({
             </p>
           ) : null}
 
+
           <dl className="mt-4 flex flex-col gap-2.5">
             <Detail label="Status">
               <StatusPill task={task} viewerId={viewerId} />
@@ -179,12 +181,25 @@ export function TaskSheet({
             </Detail>
           </dl>
 
+          {/* The body's three states (view / edit / decline) cross-fade instead
+              of hard-swapping. Exit is a fast 120ms fade so the old form gets
+              out of the way; the new one settles up 8px on the enter spring.
+              mode="wait" keeps the two from stacking vertically mid-swap. */}
+          <AnimatePresence mode="wait" initial={false}>
           {editing ? (
-            <div className="mt-5">
+            <motion.div
+              key="edit"
+              className="mt-5"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, transition: { duration: 0.12 } }}
+              transition={SPRING_ENTER}
+            >
               <TaskEditor
                 task={task}
                 people={people}
                 viewerId={viewerId}
+                viewerIsAdmin={viewerIsAdmin}
                 busy={busy}
                 onCancel={() => setEditing(false)}
                 onSave={(input) => {
@@ -192,9 +207,16 @@ export function TaskSheet({
                   onUpdate(task, input);
                 }}
               />
-            </div>
+            </motion.div>
           ) : decliningOpen ? (
-            <div className="mt-5">
+            <motion.div
+              key="decline"
+              className="mt-5"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, transition: { duration: 0.12 } }}
+              transition={SPRING_ENTER}
+            >
               <label htmlFor="decline-reason" className="type-callout block text-[var(--text-secondary)]">
                 Why are you passing? Optional — it goes back up for grabs either way.
               </label>
@@ -202,7 +224,7 @@ export function TaskSheet({
                 id="decline-reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="On a delivery until 3"
+                placeholder=""
                 autoComplete="off"
                 className="tap-target type-body mt-2 w-full rounded-[var(--radius-control)] px-3.5"
                 style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
@@ -215,9 +237,16 @@ export function TaskSheet({
                   Decline
                 </Button>
               </div>
-            </div>
+            </motion.div>
           ) : (
-            <div className="mt-5 flex flex-col gap-2">
+            <motion.div
+              key="actions"
+              className="mt-5 flex flex-col gap-2"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, transition: { duration: 0.12 } }}
+              transition={SPRING_ENTER}
+            >
               {actions.map((action) => (
                 <Button
                   key={action}
@@ -253,8 +282,9 @@ export function TaskSheet({
                   {confirmCancel ? 'Tap again to cancel this task' : 'Cancel this task'}
                 </Button>
               ) : null}
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
       </motion.div>
     </div>
