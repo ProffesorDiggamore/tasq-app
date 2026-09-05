@@ -112,7 +112,7 @@ function SwitchUserButton({
       data-pressed={pressed ? '' : undefined}
       data-tour="switch-user"
       aria-label={`Switch user — currently ${name}`}
-      className="press press-scale tap-target -mr-2 flex items-center gap-2 rounded-[var(--radius-pill)] px-2 disabled:opacity-50"
+      className="press press-scale tap-target -mr-3 flex h-10 w-10 items-center justify-center gap-2 rounded-full disabled:opacity-50"
     >
       <Avatar name={name} userId={userId} size={30} />
       {isAdmin ? <span className="sr-only">Admin</span> : null}
