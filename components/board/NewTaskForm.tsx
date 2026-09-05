@@ -305,7 +305,11 @@ export function NewTaskForm({
         ) : null}
       </AnimatePresence>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+      {/* pointer-events-none matches the bars in Board and Toast: the strip
+          spans the full width but only the button itself should take taps,
+          otherwise the transparent gutters either side of it swallow presses
+          meant for the form underneath (the ASAP row, at most viewport sizes). */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
         <Button
           type="submit"
           tone="primary"
@@ -313,7 +317,7 @@ export function NewTaskForm({
           pill
           disabled={!canSubmit}
           onPress={submit}
-          className="type-headline w-full max-w-lg"
+          className="type-headline pointer-events-auto w-full max-w-lg"
           style={{ boxShadow: 'var(--shadow-sheet)' }}
         >
           {pending ? 'Adding…' : timing === 'repeats' ? 'Add repeating task' : 'Add to the board'}

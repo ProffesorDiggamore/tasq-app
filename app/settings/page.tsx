@@ -122,6 +122,17 @@ export default async function SettingsPage({
               <SettingsLinks
                 links={[
                   {
+                    // Everyone gets in here. What is behind the door differs —
+                    // see lib/analytics.ts, which builds a crew member's
+                    // payload without the shop's money or anybody else's
+                    // numbers in it at all.
+                    href: '/analytics',
+                    label: 'Analytics',
+                    hint: user.isAdmin
+                      ? 'The whole board: your work, the crew, and the money'
+                      : 'What you have finished, and how the shop is doing',
+                  },
+                  {
                     href: '/?tour=1',
                     label: 'Walkthrough',
                     hint: 'A guided tour of the whole board, about a minute',

@@ -20,6 +20,27 @@ export interface AppearanceOption {
   label: string;
 }
 
+/**
+ * Paint the new appearance immediately.
+ *
+ * `data-appearance` is stamped onto <html> by the inline boot script in the
+ * root layout, which only runs on a real document load — `router.refresh()`
+ * re-renders the server components but never re-runs it, and cannot change an
+ * <html> attribute anyway. Without this the board stayed dark after tapping
+ * Light: the button moved, the choice saved, and nothing else happened until
+ * the next full page load. Mirrors the boot script's resolution so the two
+ * always agree.
+ */
+function applyAppearance(mode: string) {
+  const resolved =
+    mode === 'light' || mode === 'dark'
+      ? mode
+      : window.matchMedia('(prefers-color-scheme: light)').matches
+        ? 'light'
+        : 'dark';
+  document.documentElement.setAttribute('data-appearance', resolved);
+}
+
 /** One card: appearance (auto/light/dark) on top, accent swatches below. */
 export function ThemeCard({
   current,
@@ -52,6 +73,7 @@ export function ThemeCard({
                 onPress={() => {
                   if (selected) return;
                   haptic('commit');
+                  applyAppearance(a.key); // repaint now, don't wait for a reload
                   startTransition(async () => {
                     await setAppearanceAction(a.key);
                     router.refresh();
