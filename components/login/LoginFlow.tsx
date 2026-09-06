@@ -167,15 +167,14 @@ export function LoginFlow({ people, next }: { people: PersonSummary[]; next: str
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
           >
-            <div className="flex justify-center text-[var(--text)]">
-              <Logo size={52} title="Tasq" />
-            </div>
-            <h1 className="type-display mt-5 text-center">Who&apos;s here?</h1>
-            <p className="type-callout mt-2 text-center text-[var(--text-secondary)]">
-              Tap your name to open the board.
-            </p>
+            {/* The mark carries the screen on its own — the list below says what
+                to do without a heading spelling it out. */}
+            <h1 className="flex justify-center text-[var(--text)]">
+              <Logo size={112} title="Tasq" />
+              <span className="sr-only">Tasq — pick your name to sign in</span>
+            </h1>
 
-            <ul className="mt-8 flex w-full flex-col gap-2.5">
+            <ul className="mt-10 flex w-full flex-col gap-2.5">
               {people.map((p) => (
                 <li key={p.id}>
                   <PersonButton onPress={() => select(p)}>

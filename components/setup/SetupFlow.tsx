@@ -134,7 +134,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
               autoComplete="off"
               spellCheck={false}
               maxLength={9}
-              placeholder=""
+              placeholder="ABCD-1234"
               aria-label="Setup code"
               className="material-card mt-8 w-full rounded-[var(--radius-control)] px-4 py-3.5 text-center text-2xl font-medium tracking-[0.2em] uppercase outline-none"
               style={{ color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}
@@ -182,7 +182,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
                   }}
                   maxLength={60}
                   autoComplete="organization"
-                  placeholder=""
+                  placeholder="Gold Standard Detailing"
                   aria-label="Business or team name"
                   className="material-card mt-2 w-full rounded-[var(--radius-control)] px-4 py-3.5 text-lg outline-none"
                   style={{ color: 'var(--text)' }}
@@ -203,7 +203,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
               }}
               maxLength={40}
               autoComplete="name"
-              placeholder=""
+              placeholder="Your name"
               aria-label="Your name"
               className="material-card mt-2 w-full rounded-[var(--radius-control)] px-4 py-3.5 text-lg outline-none"
               style={{ color: 'var(--text)' }}

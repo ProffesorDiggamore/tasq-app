@@ -38,12 +38,20 @@ export async function InstallCard() {
         ? (lanUrl() ?? `${proto}://${host}`)
         : `${proto}://${host}`;
 
-  const qr = await QRCode.toString(url, {
-    type: 'svg',
-    margin: 0,
-    errorCorrectionLevel: 'M',
-    color: { dark: '#f5f5f7', light: '#00000000' },
-  });
+  // Modules are emitted black and then handed to CSS as `currentColor`, so the
+  // code inherits --text and stays high-contrast in BOTH themes. Baking a
+  // colour in is what broke it: '#f5f5f7' is near-white, which reads fine on a
+  // dark card and is invisible on the light one — an unscannable QR in the
+  // default theme, on the card whose whole job is getting crew onto their
+  // phones. The background stays transparent so the card shows through.
+  const qr = (
+    await QRCode.toString(url, {
+      type: 'svg',
+      margin: 0,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#000000', light: '#00000000' },
+    })
+  ).replaceAll('#000000', 'currentColor');
 
   return (
     <section>
@@ -51,7 +59,12 @@ export async function InstallCard() {
       <div className="material-card mt-2.5 flex items-center gap-4 rounded-[var(--radius-card)] p-4">
         <div
           className="shrink-0 rounded-[var(--radius-control)] p-2.5"
-          style={{ background: 'var(--surface-strong)', width: 112, height: 112 }}
+          style={{
+            background: 'var(--surface-strong)',
+            color: 'var(--text)',
+            width: 112,
+            height: 112,
+          }}
           // The SVG is generated here from a URL we constructed, not from input.
           dangerouslySetInnerHTML={{ __html: qr }}
           aria-hidden="true"

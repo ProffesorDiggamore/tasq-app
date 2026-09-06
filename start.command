@@ -4,7 +4,7 @@
 
 cd "$(dirname "$0")"
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-export PORT=4844
+export PORT=4744
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "Node/npm not found. Install it from https://nodejs.org then run this again."
@@ -12,14 +12,38 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-# Another copy already running (the launchd service, or a second window) would
-# just fail on the port, so say which and stop rather than half-starting.
-if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "Something is already using port $PORT — the board may already be running."
-  echo "Open http://localhost:$PORT to check."
-  open "http://localhost:$PORT"
-  read -r -p "Press Return to close." _
-  exit 0
+# Another copy already running (the launchd service, or a window left open days
+# ago) would just fail on the port. An OLD copy is the dangerous case: it keeps
+# serving a build from whenever it started, so new work looks like it vanished.
+# Take over the port when the process is this board's own server; step aside
+# only for something that is not ours.
+PORT_PIDS="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null)"
+if [ -n "$PORT_PIDS" ]; then
+  OURS=""
+  for pid in $PORT_PIDS; do
+    # cwd of the listener — only a process running out of THIS folder is ours.
+    pcwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | tail -1)"
+    [ "$pcwd" = "$PWD" ] && OURS="$OURS $pid"
+  done
+  if [ -z "$OURS" ]; then
+    echo "Something else on this Mac is already using port $PORT."
+    echo "Close it and run this again, or open http://localhost:$PORT to see what it is."
+    read -r -p "Press Return to close." _
+    exit 1
+  fi
+  echo "An older copy of the board is still running — restarting it so you get"
+  echo "the current version."
+  # shellcheck disable=SC2086
+  kill $OURS 2>/dev/null
+  for _ in $(seq 1 40); do
+    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 || break
+    sleep 0.25
+  done
+  if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    # shellcheck disable=SC2086
+    kill -9 $OURS 2>/dev/null
+    sleep 1
+  fi
 fi
 
 [ -d node_modules ] || { echo "Installing dependencies (first run only)..."; npm install; }

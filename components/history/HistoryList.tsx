@@ -100,6 +100,7 @@ export function HistoryList({
         <input
           name="q"
           type="search"
+          placeholder="Search history"
           defaultValue={search}
           onChange={(e) => setSearch(e.target.value)}
           autoComplete="off"

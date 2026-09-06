@@ -8,6 +8,40 @@ import { useCallback, useRef, useState } from 'react';
  */
 const SLOP_PX = 10;
 
+/**
+ * How long after a pointer-driven press a stray `click` is treated as its
+ * echo rather than a new intent.
+ *
+ * Safari fires the compatibility `click` after the finger lifts, which is
+ * AFTER a press that navigated has already swapped the page out. The click
+ * then lands at the same screen coordinates on whatever the new screen put
+ * there — sign in on the PIN pad and the board underneath opens whichever card
+ * happened to sit under the last digit. Long enough to cover a route change
+ * and its render; far shorter than any real second tap that would arrive with
+ * a pointerdown of its own.
+ */
+const GHOST_CLICK_MS = 600;
+
+let lastPointerPressAt = 0;
+
+/**
+ * Record that a press just fired from a pointer. Call this from any control
+ * that commits on pointerdown/pointerup and can navigate — see PinKeypad,
+ * which commits on down and so outruns its own click by the whole navigation.
+ */
+export function notePointerPress(): void {
+  lastPointerPressAt = performance.now();
+}
+
+/**
+ * True while a `click` arriving at a control that never saw a pointerdown is
+ * more likely the echo of the press that brought this screen up than a real
+ * activation.
+ */
+function withinGhostWindow(): boolean {
+  return performance.now() - lastPointerPressAt < GHOST_CLICK_MS;
+}
+
 export interface PressHandlers {
   onPointerDown: (e: React.PointerEvent) => void;
   onPointerMove: (e: React.PointerEvent) => void;
@@ -42,6 +76,10 @@ export function usePress(onPress: () => void, disabled = false): {
   // Keyboard and assistive tech fire click without ever sending pointerdown;
   // this keeps the two paths from both firing on a real tap.
   const handledByPointer = useRef(false);
+  // Whether this element has ever been touched directly. A click without one is
+  // either assistive tech or the ghost described above; the timing tells them
+  // apart.
+  const sawPointer = useRef(false);
 
   const clear = useCallback(() => {
     active.current = false;
@@ -54,6 +92,7 @@ export function usePress(onPress: () => void, disabled = false): {
       if (disabled) return;
       origin.current = (e.currentTarget as Element).getBoundingClientRect();
       active.current = true;
+      sawPointer.current = true;
       setPressed(true);
     },
     [disabled],
@@ -87,6 +126,7 @@ export function usePress(onPress: () => void, disabled = false): {
       clear();
       if (inside) {
         handledByPointer.current = true;
+        notePointerPress();
         onPress();
       }
     },
@@ -98,6 +138,9 @@ export function usePress(onPress: () => void, disabled = false): {
       handledByPointer.current = false;
       return;
     }
+    // Never touched, and a pointer press fired a moment ago on the screen this
+    // one replaced: this is that press's trailing click, not a new one.
+    if (!sawPointer.current && withinGhostWindow()) return;
     if (!disabled) onPress();
   }, [disabled, onPress]);
 

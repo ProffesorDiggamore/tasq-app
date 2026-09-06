@@ -39,10 +39,12 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     formatDetection: { telephone: false },
     manifest: '/manifest.webmanifest',
-    icons: {
-      icon: [{ url: '/favicon.png', type: 'image/png' }],
-      apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180' }],
-    },
+    // No `icons` here on purpose. app/icon.png and app/apple-icon.png are
+    // Next's file conventions: it emits the <link> tags itself, with a content
+    // hash in the URL. A plain /favicon.png never changes URL when the artwork
+    // does, and browsers that pin favicons in their own store (Opera, Chrome's
+    // tab strip) go on showing the old mark for good. The hash makes a changed
+    // icon a different URL, so a stale one is impossible.
   };
 }
 

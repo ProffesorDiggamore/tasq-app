@@ -109,7 +109,7 @@ export function SuppliesScreen({
             <input
               value={item}
               onChange={(e) => setItem(e.target.value)}
-              placeholder=""
+              placeholder="Blue roll"
               aria-label="What do you need"
               autoComplete="off"
               className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5"
@@ -118,7 +118,7 @@ export function SuppliesScreen({
             <input
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
-              placeholder=""
+              placeholder="A case"
               aria-label="How much"
               autoComplete="off"
               className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5"
@@ -139,7 +139,7 @@ export function SuppliesScreen({
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={2}
-                    placeholder=""
+                    placeholder="Anything else worth knowing"
                     aria-label="Anything else"
                     className="type-body w-full rounded-[var(--radius-control)] px-3.5 py-2.5"
                     style={{
@@ -343,10 +343,14 @@ function RequestRow({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
       transition={SPRING_ENTER}
-      className="material-card flex items-center gap-3 rounded-[var(--radius-card)] px-4 py-3"
+      // Wraps on purpose. A row with two buttons (On order: Undo + Arrived)
+      // leaves the text column ~110pt on a 375px phone, which truncated the
+      // meta line mid-word — "Shelly · 6 days ..." with the "ago" eaten. Below
+      // the basis the buttons drop to their own line instead of squeezing it.
+      className="material-card flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[var(--radius-card)] px-4 py-3"
     >
       <Avatar name={row.requestedByName} userId={row.requestedBy} size={32} />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 basis-44">
         {/* The scannable line Chris reads: item — requester. Wraps rather than
             truncating: with two buttons alongside, truncation eats the noun. */}
         <p className="type-headline">
@@ -368,16 +372,18 @@ function RequestRow({
           </p>
         ) : null}
       </div>
-      {secondary ? (
-        <Button tone="quiet" disabled={busy} onPress={secondary.run}>
-          {secondary.label}
-        </Button>
-      ) : null}
-      {primary ? (
-        <Button tone="primary" disabled={busy} onPress={primary.run}>
-          {primary.label}
-        </Button>
-      ) : null}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        {secondary ? (
+          <Button tone="quiet" disabled={busy} onPress={secondary.run}>
+            {secondary.label}
+          </Button>
+        ) : null}
+        {primary ? (
+          <Button tone="primary" disabled={busy} onPress={primary.run}>
+            {primary.label}
+          </Button>
+        ) : null}
+      </div>
     </motion.li>
   );
 }

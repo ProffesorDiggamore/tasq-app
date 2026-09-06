@@ -166,7 +166,7 @@ export function GroupsManager({
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value.slice(0, 32))}
-            placeholder=""
+            placeholder="Concrete Guys"
             aria-label="Tab name"
             autoComplete="off"
             className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5"

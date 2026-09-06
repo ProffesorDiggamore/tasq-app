@@ -5,6 +5,7 @@ import { motion, useAnimate } from 'motion/react';
 import { PIN_LENGTH } from '@/lib/auth/pin.client';
 import { haptic } from '@/lib/haptics';
 import { prefersReducedMotion, SPRING_MOVE } from '@/lib/motion';
+import { notePointerPress } from '@/lib/use-press';
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', null, '0', 'del'] as const;
 
@@ -186,6 +187,11 @@ function KeypadKey({
         e.preventDefault();
         handledByPointer.current = true;
         setPressed(true);
+        // Committing on down means the last digit navigates before the finger
+        // is even up, so this key's own click lands on the NEXT screen. Stamp
+        // the press so whatever is under that coordinate can tell the echo
+        // from a real tap.
+        notePointerPress();
         onPress(value);
       }}
       onPointerUp={() => setPressed(false)}

@@ -196,7 +196,7 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder=""
+            placeholder="Their name"
             autoComplete="off"
             className="tap-target type-body w-full rounded-[var(--radius-control)] px-3.5"
             style={{

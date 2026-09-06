@@ -51,3 +51,8 @@ logs/
 AGENTS.md
 CLAUDE.md
 .mimosa/
+
+# Local ops + planning notes, not part of the shipped app
+billing/
+BUILD-BRIEF.md
+.claude-flow/
