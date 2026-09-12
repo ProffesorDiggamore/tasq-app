@@ -117,13 +117,73 @@ if [ "$(id -u)" -eq 0 ]; then
   die "Don't run this with sudo. Run 'bash setup/bootstrap.sh' as yourself; it will ask for your password when it needs it."
 fi
 
-command -v node >/dev/null 2>&1 || die "Node is not installed. Get it from https://nodejs.org (version 20 or newer), then run this again."
+# Command line tools. macOS ships git and a few others as stubs that do
+# nothing until these are installed, so "git: command found" proves nothing —
+# ask git to actually do something instead.
+# Probe with xcode-select, not by running git: the git stub answers a version
+# query by throwing an install dialog onto the Mac's own screen, which is
+# nobody's idea of helpful when this is being run over SSH.
+if [ -d "$(xcode-select -p 2>/dev/null || true)" ] && git --version >/dev/null 2>&1; then
+  ok "Command line tools ($(git --version))"
+else
+  warn "Apple's command line tools are not installed."
+  info "git is a stub without them, and the self-update needs a working git."
+  if confirm "Install them now? (a few minutes, no Apple ID needed)"; then
+    # xcode-select --install puts a dialog on the Mac's own screen, which is
+    # no use over SSH with nobody sitting there. This is the headless path:
+    # the sentinel file makes softwareupdate offer the tools as an update.
+    SENTINEL=/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+    sudo touch "$SENTINEL"
+    LABEL="$(softwareupdate -l 2>/dev/null | grep -E '^\s*\*.*Command Line' | tail -1 | sed -e 's/^[^C]*//' -e 's/[[:space:]]*$//')"
+    if [ -n "$LABEL" ]; then
+      info "Installing: $LABEL"
+      sudo softwareupdate -i "$LABEL" || warn "softwareupdate could not install them."
+    else
+      warn "Apple is not offering the tools as an update on this machine."
+    fi
+    sudo rm -f "$SENTINEL"
+    git --version >/dev/null 2>&1 \
+      && ok "Command line tools installed ($(git --version))" \
+      || die "Still no working git. Sit at this Mac, run 'xcode-select --install', click through the dialog, then run this again."
+  else
+    warn "Carrying on. The board will work, but setup/autoupdate.sh will not."
+  fi
+fi
+
+# Node. A shop Mac never has it, and telling someone to go and get it is how a
+# deploy stalls for a day. nodejs.org's installer is signed by the Node project
+# and needs no Apple ID, no App Store and no Homebrew.
+if ! command -v node >/dev/null 2>&1; then
+  warn "Node is not installed, and Tasq runs on it."
+  confirm "Download and install Node from nodejs.org?" || die "Install Node yourself from https://nodejs.org (version 20 or newer), then run this again."
+
+  NODE_INDEX="$(curl -fsS https://nodejs.org/dist/index.json 2>/dev/null || true)"
+  NODE_VER="$(printf '%s' "$NODE_INDEX" | tr '}' '\n' | grep '"lts":"' | head -1 | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+  [ -n "$NODE_VER" ] || die "Could not reach nodejs.org. Check the internet connection, or install Node by hand from https://nodejs.org"
+
+  NODE_PKG="$(mktemp -d)/node.pkg"
+  info "Downloading Node $NODE_VER"
+  curl -fL --progress-bar -o "$NODE_PKG" "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER.pkg" \
+    || die "The download failed. Install Node by hand from https://nodejs.org"
+
+  # Never hand root an installer macOS will not vouch for.
+  spctl -a -vv -t install "$NODE_PKG" >/dev/null 2>&1 \
+    || die "That installer did not pass macOS's signature check. Delete it and install Node by hand from https://nodejs.org"
+
+  sudo installer -pkg "$NODE_PKG" -target / >/dev/null || die "The Node installer failed."
+  rm -f "$NODE_PKG"
+  export PATH="/usr/local/bin:$PATH"
+  hash -r
+  command -v node >/dev/null 2>&1 || die "Node installed but is not on the PATH. Open a new terminal and run this again."
+  ok "Node $(node -v) installed"
+fi
+
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-[ "$NODE_MAJOR" -ge 20 ] || die "Node $(node -v) is too old. Version 20 or newer is required."
+[ "$NODE_MAJOR" -ge 20 ] || die "Node $(node -v) is too old. Version 20 or newer is required. Update it from https://nodejs.org"
 ok "Node $(node -v)"
 
 command -v npm >/dev/null 2>&1 || die "npm is missing, which is unusual with Node installed. Reinstall Node."
-command -v sqlite3 >/dev/null 2>&1 || die "sqlite3 is missing. Install Xcode command line tools: xcode-select --install"
+command -v sqlite3 >/dev/null 2>&1 || die "sqlite3 is missing, which is unusual on macOS. The backups cannot run without it."
 ok "npm $(npm -v), sqlite3 $(sqlite3 --version | cut -d' ' -f1)"
 
 # ------------------------------------------------------------- location -----
