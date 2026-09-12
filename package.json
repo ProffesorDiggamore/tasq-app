@@ -24,7 +24,8 @@
     "verify:setup": "bash scripts/verify-setup.sh",
     "verify:payouts": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-payouts.mts",
     "verify:analytics": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-analytics.mts",
-    "verify:devices": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-devices.mts"
+    "verify:devices": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-devices.mts",
+    "seed:board": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-board.mts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

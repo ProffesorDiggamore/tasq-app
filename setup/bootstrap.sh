@@ -331,60 +331,21 @@ elif [ "$SKIP_FUNNEL" -eq 0 ] && [ "$TUNNEL_CHOICE" = "cloudflare" ]; then
     info "  bash $APP_DIR/setup/cloudflared.sh"
   fi
 elif [ "$SKIP_FUNNEL" -eq 0 ] && [ "$TUNNEL_CHOICE" = "tailscale" ]; then
-
-  if ! command -v tailscale >/dev/null 2>&1; then
-    if [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]; then
-      export PATH="/Applications/Tailscale.app/Contents/MacOS:$PATH"
-    elif command -v brew >/dev/null 2>&1; then
-      if confirm "Tailscale is not installed. Install it with Homebrew?"; then
-        brew install --cask tailscale || warn "Homebrew could not install it."
-        [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ] && \
-          export PATH="/Applications/Tailscale.app/Contents/MacOS:$PATH"
-      fi
-    else
-      warn "Tailscale is not installed and Homebrew is not available."
-      info "Install it from https://tailscale.com/download, then run this script again."
-    fi
-  fi
-
-  if command -v tailscale >/dev/null 2>&1; then
-    ok "Tailscale is installed"
-    if ! tailscale status >/dev/null 2>&1; then
-      warn "You are not signed in to Tailscale."
-      info "A browser window will open. Sign in, then come back here."
-      confirm "Sign in now?" && (sudo tailscale up || warn "Sign-in did not complete.")
-    fi
-
-    if tailscale status >/dev/null 2>&1; then
-      ok "Signed in as $(tailscale status --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).Self.DNSName.replace(/\.$/,""))}catch{console.log("this machine")}})' 2>/dev/null || echo 'this machine')"
-      echo
-      warn "The next step publishes port $PORT to the public internet over HTTPS."
-      info "Anyone with the address reaches the sign-in screen; a PIN is still required."
-      if confirm "Turn on public access?"; then
-        if sudo tailscale funnel --bg "$PORT" >/dev/null 2>&1; then
-          ok "Funnel is on"
-        else
-          warn "Funnel could not start."
-          info "Usually one of two things in the Tailscale admin console:"
-          info "  1. DNS → HTTPS Certificates is not enabled"
-          info "  2. your ACL does not grant the 'funnel' node attribute"
-          info "Fix that, then run: sudo tailscale funnel --bg $PORT"
-        fi
-        info "Waiting for the certificate…"
-        for _ in $(seq 1 30); do
-          FUNNEL_URL="$(tailscale funnel status 2>/dev/null | grep -oE 'https://[a-zA-Z0-9._-]+\.ts\.net' | head -1 || true)"
-          [ -n "$FUNNEL_URL" ] && break
-          sleep 2
-        done
-        if [ -n "$FUNNEL_URL" ]; then
-          ok "Public address: $FUNNEL_URL"
-        else
-          warn "No public address yet. Check with: tailscale funnel status"
-        fi
-      else
-        info "Left off. The board works on the shop network only."
-      fi
-    fi
+  # setup/tailscale.sh owns this path end to end — it installs Tailscale from
+  # Tailscale's own signed .pkg (no Homebrew, no Apple ID, no App Store),
+  # signs in, publishes the port, and writes the addresses to .env.local.
+  info "Handing off to setup/tailscale.sh."
+  TS_ARGS=()
+  if [ "$ASSUME_YES" -eq 1 ]; then TS_ARGS+=(--yes); fi
+  if PORT="$PORT" bash "$APP_DIR/setup/tailscale.sh" "${TS_ARGS[@]+"${TS_ARGS[@]}"}"; then
+    FUNNEL_URL="$(env_value TASQ_PUBLIC_URL || true)"
+    case "$FUNNEL_URL" in
+      https://*) ok "Public address: $FUNNEL_URL" ;;
+      *) FUNNEL_URL=""; info "No public address was set up." ;;
+    esac
+  else
+    warn "Tailscale setup did not finish. Re-run it any time with:"
+    info "  bash $APP_DIR/setup/tailscale.sh"
   fi
 fi
 

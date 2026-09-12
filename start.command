@@ -1,16 +1,67 @@
 #!/bin/bash
-# Double-click this file in Finder to run the Tasq.
+# Double-click this file in Finder to run the Tasq board.
 # Close this window (or Ctrl+C) when done.
+#
+# First run on a new Mac does everything: installs Node if it is missing,
+# installs the app's dependencies, generates the keys, offers to put the board
+# on a public HTTPS address with Tailscale, builds, and starts.
+# Every run after that skips whatever is already done.
 
 cd "$(dirname "$0")"
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/Applications/Tailscale.app/Contents/MacOS:$PATH"
 export PORT=4744
 
-if ! command -v npm >/dev/null 2>&1; then
-  echo "Node/npm not found. Install it from https://nodejs.org then run this again."
-  read -r -p "Press Return to close." _
-  exit 1
+say()  { printf '\n==> %s\n' "$1"; }
+stop() { printf '\n%s\n' "$1"; read -r -p "Press Return to close." _; exit 1; }
+
+# A folder that arrived by AirDrop, download, or USB stick is quarantined, and
+# macOS then refuses to run the scripts inside it. Clearing it here covers
+# update.command and the setup scripts; this file itself was already let
+# through by whoever opened it.
+if xattr -p com.apple.quarantine . >/dev/null 2>&1; then
+  xattr -dr com.apple.quarantine . 2>/dev/null || true
 fi
+
+# ------------------------------------------------------------------- node ---
+
+if ! command -v node >/dev/null 2>&1; then
+  say "Node is not installed on this Mac"
+  echo "Tasq runs on Node. It is a free install from nodejs.org, signed by the"
+  echo "Node project — no Apple ID and no App Store needed."
+  echo
+  read -r -p "Download and install it now? [Y/n] " reply
+  case "$reply" in
+    ''|y|Y|yes|YES) ;;
+    *) stop "Install Node yourself from https://nodejs.org then run this again." ;;
+  esac
+
+  INDEX="$(curl -fsS https://nodejs.org/dist/index.json 2>/dev/null || true)"
+  NODE_VER="$(printf '%s' "$INDEX" | tr '}' '\n' | grep '"lts":"' | head -1 | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+  [ -n "$NODE_VER" ] || stop "Could not reach nodejs.org. Check the internet connection, or install Node by hand from https://nodejs.org"
+
+  NODE_PKG="$(mktemp -d)/node.pkg"
+  echo "Downloading Node $NODE_VER…"
+  curl -fL --progress-bar -o "$NODE_PKG" "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER.pkg" \
+    || stop "The download failed. Install Node by hand from https://nodejs.org"
+
+  # Do not hand root an installer macOS will not vouch for.
+  spctl -a -vv -t install "$NODE_PKG" >/dev/null 2>&1 \
+    || stop "That installer did not pass macOS's signature check. Delete it and install Node by hand from https://nodejs.org"
+
+  echo "macOS will ask for this Mac's password to install it."
+  sudo installer -pkg "$NODE_PKG" -target / >/dev/null || stop "The Node installer failed."
+  rm -f "$NODE_PKG"
+  export PATH="/usr/local/bin:$PATH"
+  hash -r
+  command -v node >/dev/null 2>&1 || stop "Node installed but is not on the PATH. Close this window, open a new one, and run this again."
+  echo "Node $(node -v) installed."
+fi
+
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+[ "$NODE_MAJOR" -ge 20 ] || stop "Node $(node -v) is too old — version 20 or newer is required. Update it from https://nodejs.org"
+command -v npm >/dev/null 2>&1 || stop "npm is missing, which is unusual with Node installed. Reinstall Node from https://nodejs.org"
+
+# ------------------------------------------------------------------- port ---
 
 # Another copy already running (the launchd service, or a window left open days
 # ago) would just fail on the port. An OLD copy is the dangerous case: it keeps
@@ -27,9 +78,7 @@ if [ -n "$PORT_PIDS" ]; then
   done
   if [ -z "$OURS" ]; then
     echo "Something else on this Mac is already using port $PORT."
-    echo "Close it and run this again, or open http://localhost:$PORT to see what it is."
-    read -r -p "Press Return to close." _
-    exit 1
+    stop "Close it and run this again, or open http://localhost:$PORT to see what it is."
   fi
   echo "An older copy of the board is still running — restarting it so you get"
   echo "the current version."
@@ -46,7 +95,24 @@ if [ -n "$PORT_PIDS" ]; then
   fi
 fi
 
-[ -d node_modules ] || { echo "Installing dependencies (first run only)..."; npm install; }
+# ----------------------------------------------------------- dependencies ---
+
+# Reinstalling only when node_modules is absent misses the case that actually
+# bites: an update arrives with new packages in the lockfile and the build then
+# fails on a missing module. Stamp the lockfile we installed from and compare.
+STAMP=node_modules/.tasq-lock-stamp
+LOCK_HASH="$(shasum -a 256 package-lock.json 2>/dev/null | cut -d' ' -f1)"
+if [ ! -d node_modules ]; then
+  say "Installing dependencies (first run — takes a couple of minutes)"
+  npm install --no-audit --no-fund || stop "Installing dependencies failed — see the errors above."
+  printf '%s\n' "$LOCK_HASH" > "$STAMP"
+elif [ "$LOCK_HASH" != "$(cat "$STAMP" 2>/dev/null)" ]; then
+  say "This version needs some new dependencies — installing them"
+  npm install --no-audit --no-fund || stop "Installing dependencies failed — see the errors above."
+  printf '%s\n' "$LOCK_HASH" > "$STAMP"
+fi
+
+# ---------------------------------------------------------------- secrets ---
 
 # Session-cookie encryption key. Required, but a shop owner should never have
 # to know that: generate a strong one on first run and keep it in .env.local.
@@ -58,13 +124,37 @@ if ! grep -q '^SESSION_SECRET=' .env.local 2>/dev/null; then
   echo "Created .env.local with a generated session key."
 fi
 
-echo "Building..."
-npm run build || {
+# ------------------------------------------------------- public https ------
+
+# Phones need a real https address for notifications and Add to Home Screen.
+# Offer it once; a "no" is remembered so this does not nag every launch.
+HAS_PUBLIC=0
+grep -q '^TASQ_PUBLIC_URL=https://' .env.local 2>/dev/null && HAS_PUBLIC=1
+grep -q '^TASQ_TUNNEL_TOKEN=.' .env.local 2>/dev/null && HAS_PUBLIC=1
+grep -q '^TASQ_SKIP_TUNNEL=1' .env.local 2>/dev/null && HAS_PUBLIC=1
+if [ "$HAS_PUBLIC" -eq 0 ] && [ -t 0 ]; then
+  say "This board has no address phones can use from outside the shop"
+  echo "Notifications and Add to Home Screen both need a real https address."
+  echo "Tailscale gives you one free, with no domain to buy and nothing to open"
+  echo "on the router. It takes about five minutes and a Tailscale login."
   echo
-  echo "The build failed — see the errors above."
-  read -r -p "Press Return to close." _
-  exit 1
-}
+  read -r -p "Set that up now? [Y/n] " reply
+  case "$reply" in
+    ''|y|Y|yes|YES)
+      bash setup/tailscale.sh || echo "Tailscale setup did not finish — carrying on without it. Re-run any time with: bash setup/tailscale.sh"
+      ;;
+    *)
+      printf 'TASQ_SKIP_TUNNEL=1\n' >> .env.local
+      echo "Skipped. The board will work on the shop network only."
+      echo "Change your mind later: bash setup/tailscale.sh"
+      ;;
+  esac
+fi
+
+# ------------------------------------------------------------------ build ---
+
+say "Building"
+npm run build || stop "The build failed — see the errors above."
 
 ( for i in $(seq 1 120); do
     nc -z 127.0.0.1 "$PORT" 2>/dev/null && { open "http://localhost:$PORT"; break; }
@@ -75,6 +165,8 @@ echo
 echo "Tasq is starting on http://localhost:$PORT"
 LAN="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"
 [ -n "$LAN" ] && echo "On the shop network: http://$LAN:$PORT"
+PUBLIC="$(sed -n 's|^TASQ_PUBLIC_URL=\(https://.*\)|\1|p' .env.local 2>/dev/null | tail -1)"
+[ -n "$PUBLIC" ] && echo "From anywhere (use this on phones): $PUBLIC"
 echo
 
 # First-run activation code. The server also prints it once it boots; this
@@ -99,6 +191,7 @@ fi
 # --- Optional Cloudflare Tunnel (gives phones an https address) ---
 # Runs only when a token is present in .env.local as TASQ_TUNNEL_TOKEN=...
 # (see CLOUDFLARE-SETUP.md). No token, no tunnel — the board still works.
+# Tailscale users have their address already and never reach this block.
 TUNNEL_TOKEN=""
 if [ -f .env.local ]; then
   TUNNEL_TOKEN=$(sed -n 's/^TASQ_TUNNEL_TOKEN=//p' .env.local | tail -1)
