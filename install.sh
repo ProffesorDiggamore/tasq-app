@@ -26,7 +26,7 @@ DEST="${TASQ_DEST:-/Users/Shared/tasq}"
 # and answer itself. Point stdin back at the terminal.
 # /dev/tty exists even with no controlling terminal, and only fails on open, so
 # test by opening it before committing exec to it.
-if : </dev/tty 2>/dev/null; then exec </dev/tty; fi
+if (exec </dev/tty) 2>/dev/null; then exec </dev/tty; fi
 
 if [ -t 1 ]; then
   BOLD=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; GREEN=$'\033[32m'
