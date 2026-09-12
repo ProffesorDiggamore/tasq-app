@@ -24,7 +24,9 @@ DEST="${TASQ_DEST:-/Users/Shared/tasq}"
 # Piped through curl, this script's stdin is the download, not the keyboard, so
 # every prompt from here down (including bootstrap's) would read end-of-file
 # and answer itself. Point stdin back at the terminal.
-[ -e /dev/tty ] && exec </dev/tty
+# /dev/tty exists even with no controlling terminal, and only fails on open, so
+# test by opening it before committing exec to it.
+if : </dev/tty 2>/dev/null; then exec </dev/tty; fi
 
 if [ -t 1 ]; then
   BOLD=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; GREEN=$'\033[32m'
