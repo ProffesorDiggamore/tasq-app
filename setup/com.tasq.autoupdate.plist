@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Checks GitHub for a new version and applies it. Written by
+  setup/autoupdate.sh --setup, which fills the placeholders in; do not edit the
+  installed copy in /Library/LaunchDaemons, edit this one and re-run --setup.
+
+  A LaunchDaemon so it keeps working with nobody logged in, but it runs as the
+  shop user: the build, node_modules and the database must not end up owned by
+  root, and an unattended job has no business holding root anyway. It restarts
+  the board by killing the process launchd is already watching, which needs no
+  privileges at all.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tasq.autoupdate</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__APP_DIR__/setup/autoupdate.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__APP_DIR__</string>
+
+    <key>UserName</key>
+    <string>__RUN_USER__</string>
+    <key>GroupName</key>
+    <string>staff</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__NODE_DIR__:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>TASQ_ROOT</key>
+        <string>__APP_DIR__</string>
+    </dict>
+
+    <key>StartInterval</key>
+    <integer>__INTERVAL__</integer>
+
+    <!-- Not at load: a Mac coming back from a power cut should get the board
+         up first. The next interval is soon enough to collect an update. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- Builds are heavy. Keep them off the cores the board is serving on. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>5</integer>
+
+    <key>StandardOutPath</key>
+    <string>__APP_DIR__/logs/autoupdate.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__APP_DIR__/logs/autoupdate.error.log</string>
+</dict>
+</plist>

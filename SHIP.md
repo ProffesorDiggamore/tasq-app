@@ -62,9 +62,48 @@ npm run devices -- approve 3 # let #3 in
 npm run devices -- off       # turn the whole thing off
 ```
 
-## 4. Later: sending an update
+## 3b. Optional: let the board update itself
 
-Zip the new app folder (minus `node_modules`, `data`, `.env.local`), name it
+Worth doing on any board you will keep working on after handover — it turns a
+shipped update into `git push` and nothing else.
+
+```bash
+bash setup/autoupdate.sh --setup
+```
+
+It makes a read-only deploy key, prints the public half for you to paste into
+the repo's **Settings → Deploy keys** (leave *Allow write access* unchecked),
+switches `origin` to SSH so that key can be used, asks which branch this board
+should follow, and schedules the check.
+
+From then on, pushing to that branch is the whole deployment. The shop Mac
+fetches on its own, and only when there is something new does it back up the
+database, install any new dependencies, build, run `npm run verify`, and
+restart. A failed build, a failed check suite, or a board that does not answer
+afterwards all roll it back to the last version that worked — the commit, the
+`node_modules`, and the build together — so a bad push cannot leave a shop
+without a board.
+
+Nothing reaches into the shop from outside: the Mac pulls. It does need to be
+a `git clone`, not a copied folder, and it refuses to run while the working
+tree has local edits rather than overwriting somebody's fix.
+
+```bash
+bash setup/autoupdate.sh --status   # what it follows, and the last few runs
+bash setup/autoupdate.sh --now      # do not wait for the next check
+bash setup/autoupdate.sh --off      # stop; board stays on its current version
+tail -f logs/autoupdate.log
+```
+
+To push an update and watch it land, with both Macs on the same tailnet:
+
+```bash
+git push origin main && ssh <shop-mac> 'cd /Users/Shared/tasq && setup/autoupdate.sh --now'
+```
+
+## 4. Later: sending an update by hand
+
+For a board without auto-update: zip the new app folder (minus `node_modules`, `data`, `.env.local`), name it
 `Tasq-update`, send it. The owner drops it on the Desktop and double-clicks
 **`update.command`**. It backs up their data, builds the new version in a
 staging copy, swaps it in only if the build is green, smoke-boots it, and rolls

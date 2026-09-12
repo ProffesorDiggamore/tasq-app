@@ -18,7 +18,7 @@ echo "${BOLD}Removing Tasq's background jobs${RESET}"
 echo "${DIM}Your database and backups stay put.${RESET}"
 echo
 
-for job in server backup tunnel; do
+for job in server backup tunnel autoupdate; do
   LABEL="com.tasq.$job"
   if launchctl print "system/$LABEL" >/dev/null 2>&1; then
     sudo launchctl bootout "system/$LABEL" 2>/dev/null || true
