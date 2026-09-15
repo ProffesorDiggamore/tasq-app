@@ -16,6 +16,11 @@ export interface PinKeypadProps {
   error: string | null;
   /** Bumped by the parent on every failure so repeated identical errors still shake. */
   errorNonce: number;
+  /**
+   * Bumped by the parent to throw away a half-typed entry — the pad owns the
+   * digits, so a parent offering "start over" has no other way to take them back.
+   */
+  clearNonce?: number;
   disabled: boolean;
   busy: boolean;
   onComplete: (pin: string) => void;
@@ -25,6 +30,7 @@ export function PinKeypad({
   prompt,
   error,
   errorNonce,
+  clearNonce = 0,
   disabled,
   busy,
   onComplete,
@@ -32,6 +38,7 @@ export function PinKeypad({
   const [buffer, setBuffer] = useState('');
   const [scope, animate] = useAnimate<HTMLDivElement>();
   const lastNonce = useRef(errorNonce);
+  const lastClearNonce = useRef(clearNonce);
 
   const press = useCallback(
     (key: string) => {
@@ -83,6 +90,13 @@ export function PinKeypad({
   useEffect(() => {
     if (disabled) setBuffer('');
   }, [disabled]);
+
+  // Clear on the parent's say-so, without the shake a failure gets.
+  useEffect(() => {
+    if (clearNonce === lastClearNonce.current) return;
+    lastClearNonce.current = clearNonce;
+    setBuffer('');
+  }, [clearNonce]);
 
   // A physical keyboard is the fastest input on the shop Mac.
   useEffect(() => {

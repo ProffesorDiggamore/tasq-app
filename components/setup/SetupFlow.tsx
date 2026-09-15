@@ -29,6 +29,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
   const [firstPin, setFirstPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [errorNonce, setErrorNonce] = useState(0);
+  const [clearNonce, setClearNonce] = useState(0);
   const [pending, startTransition] = useTransition();
 
   const fail = useCallback((message: string) => {
@@ -273,6 +274,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
                 }
                 error={error}
                 errorNonce={errorNonce}
+                clearNonce={clearNonce}
                 disabled={false}
                 busy={pending}
                 onComplete={handlePinComplete}
@@ -287,6 +289,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
                   setFirstPin('');
                   setStage('pin');
                   setError(null);
+                  setClearNonce((n) => n + 1);
                 }}
                 className="text-[var(--text-secondary)]"
               >
