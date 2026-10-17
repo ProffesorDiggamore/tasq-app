@@ -1,3 +1,4 @@
+import type { NotifyEventKey } from '@/lib/notify-events';
 import type { TaskStatus } from '@/lib/db/schema';
 
 /**
@@ -172,7 +173,7 @@ export interface SupplyQueue {
  */
 export type NotifyAudience =
   | { kind: 'user'; userId: number }
-  | { kind: 'admins' }
+  | { kind: 'admins'; except?: number }
   /** Everyone in one tab, plus the admins who can see every tab. */
   | { kind: 'group'; groupId: number; except?: number }
   | { kind: 'everyone'; except?: number };
@@ -186,4 +187,11 @@ export interface NotifyIntent {
   /** Collapses repeats about the same subject instead of stacking them. */
   tag?: string;
   urgent?: boolean;
+  /**
+   * Which rule on the Notifications screen governs this one. Checked by the
+   * sender, not by the feature that wrote the intent, so switching a rule off
+   * cannot be forgotten at one call site. An intent with no event — an
+   * announcement someone typed by hand — always goes.
+   */
+  event?: NotifyEventKey;
 }

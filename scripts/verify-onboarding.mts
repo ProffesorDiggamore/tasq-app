@@ -47,109 +47,108 @@ function codeFromFile(): string {
 }
 
 section('First boot');
-initDatabase();
-check('no people on a fresh board', db.select({ id: users.id }).from(users).all().length === 0);
-check('recovering a board with nobody on it is refused', setup.mintRecoveryCode() === null);
-check('one unused code minted', db.select().from(setupCodes).all().length === 1);
+await initDatabase();
+check('no people on a fresh board', (await db.select({ id: users.id }).from(users).all()).length === 0);
+check('recovering a board with nobody on it is refused', await setup.mintRecoveryCode() === null);
+check('one unused code minted', (await db.select().from(setupCodes).all()).length === 1);
 check('code file written next to the database', fs.existsSync(path.join(tmp, 'setup-code.txt')));
 check('file is readable text holding the code', /^[2-9A-Z]{4}-[2-9A-Z]{4}$/.test(codeFromFile()));
-check('stored hash is not the code', !db.select().from(setupCodes).get()!.codeHash.includes(codeFromFile()));
+check('stored hash is not the code', !(await db.select().from(setupCodes).get())!.codeHash.includes(codeFromFile()));
 
 const code = codeFromFile();
 
 section('Code verification');
-check('right code accepted', setup.verifySetupCode(code));
-check('lowercase without dash accepted', setup.verifySetupCode((code).toLowerCase().replace('-', '')));
-check('garbage refused', !setup.verifySetupCode('hello world'));
-check('short input refused', !setup.verifySetupCode('AB2'));
-check('wrong but well-formed code refused', !setup.verifySetupCode('ZZZZ-ZZZZ'));
+check('right code accepted', await setup.verifySetupCode(code));
+check('lowercase without dash accepted', await setup.verifySetupCode((code).toLowerCase().replace('-', '')));
+check('garbage refused', !await setup.verifySetupCode('hello world'));
+check('short input refused', !await setup.verifySetupCode('AB2'));
+check('wrong but well-formed code refused', !await setup.verifySetupCode('ZZZZ-ZZZZ'));
 check('ambiguous letters are never minted', !/[0O1IL]/.test(code));
 
 section('Redemption');
-const wrong = await setup.redeemSetupCode('AAAA-BBBB', 'Shop', 'Pat', '1234', '1234');
+const wrong = await setup.redeemSetupCode('AAAA-BBBB', 'Pat', '1234', '1234');
 check('unknown code refused', !wrong.ok && wrong.reason === 'bad-code');
-const mismatch = await setup.redeemSetupCode((code), 'Shop', 'Pat', '1234', '9999');
+const mismatch = await setup.redeemSetupCode((code), 'Pat', '1234', '9999');
 check('PIN confirmation mismatch refused', !mismatch.ok && mismatch.reason === 'pin-mismatch');
-const badPin = await setup.redeemSetupCode((code), 'Shop', 'Pat', '12ab', '12ab');
+const badPin = await setup.redeemSetupCode((code), 'Pat', '12ab', '12ab');
 check('non-digit PIN refused', !badPin.ok && badPin.reason === 'bad-pin');
-const shortName = await setup.redeemSetupCode((code), 'Shop', 'P', '1234', '1234');
+const shortName = await setup.redeemSetupCode((code), 'P', '1234', '1234');
 check('single-character name refused', !shortName.ok && shortName.reason === 'bad-name');
 
-const good = await setup.redeemSetupCode((code), '   Cedar   Supply ', ' Pat Doe ', '2481', '2481');
+const good = await setup.redeemSetupCode((code), ' Pat Doe ', '2481', '2481');
 check('valid redemption succeeds', good.ok);
-const pat = db.select().from(users).where(eq(users.name, 'Pat Doe')).get()!;
+const pat = (await db.select().from(users).where(eq(users.name, 'Pat Doe')).get())!;
 check('first admin created', pat.isAdmin);
 check('they are the founder', pat.isFounder);
 check('PIN verifies against the stored hash', await verifyPin('2481', pat.pinHash!));
 check(
-  'business name trimmed and stored',
-  db.select().from(appSettings).where(eq(appSettings.key, 'org.name')).get()?.value === 'Cedar Supply',
+  'setup stores no board name — every board is called Tasq',
+  await db.select().from(appSettings).where(eq(appSettings.key, 'org.name')).get() === undefined,
 );
-check('code consumed by redemption', !setup.verifySetupCode(code));
+check('code consumed by redemption', !await setup.verifySetupCode(code));
 
-const again = await setup.redeemSetupCode((code), 'Other', 'Nina', '1111', '1111');
+const again = await setup.redeemSetupCode((code), 'Nina', '1111', '1111');
 check('reused code refused', !again.ok && again.reason === 'already-set-up');
-check('refused redemption created nobody', db.select({ id: users.id }).from(users).all().length === 1);
+check('refused redemption created nobody', (await db.select({ id: users.id }).from(users).all()).length === 1);
 check(
   'the code file deleted itself',
   !fs.existsSync(path.join(tmp, 'setup-code.txt')),
 );
 
 section('The door closes behind you');
-initDatabase();
-const codeRows = db.select().from(setupCodes).all();
+await initDatabase();
+const codeRows = await db.select().from(setupCodes).all();
 check('a set-up board mints no new codes on reboot', codeRows.length === 1);
 check('that code is the initial kind', codeRows[0].kind === 'initial');
 
 section('Admin recovery');
-const staleInitial = await setup.redeemSetupCode(code, '', 'Zoe', '5555', '5555');
+const staleInitial = await setup.redeemSetupCode(code, 'Zoe', '5555', '5555');
 check(
   'a used initial code cannot touch the live board',
   !staleInitial.ok && staleInitial.reason === 'already-set-up',
 );
-const recoveryCode = setup.mintRecoveryCode();
+const recoveryCode = await setup.mintRecoveryCode();
 check('recovery code minted for a live board', typeof recoveryCode === 'string');
-check('second mint refused while one waits', setup.mintRecoveryCode() === null);
-check('recovery door is open at /setup', setup.canRecover());
+check('second mint refused while one waits', await setup.mintRecoveryCode() === null);
+check('recovery door is open at /setup', await setup.canRecover());
 check('no second file appeared', !fs.existsSync(path.join(tmp, 'setup-code.txt')));
 
-const taken = await setup.redeemSetupCode(recoveryCode!, '', 'Pat Doe', '9876', '9876');
+const taken = await setup.redeemSetupCode(recoveryCode!, 'Pat Doe', '9876', '9876');
 check('redeeming under an existing name refused', !taken.ok && taken.reason === 'name-taken');
 
-// The org name is deliberately not part of a recovery redemption.
-const recovered = await setup.redeemSetupCode(recoveryCode!, 'Should Be Ignored', 'Nina', '9876', '9876');
+const recovered = await setup.redeemSetupCode(recoveryCode!, 'Nina', '9876', '9876');
 check('recovery code adds a new admin to the live board', recovered.ok);
-const nina = db.select().from(users).where(eq(users.name, 'Nina')).get()!;
+const nina = (await db.select().from(users).where(eq(users.name, 'Nina')).get())!;
 check('the new account is an admin with a hashed PIN', nina.isAdmin && nina.pinHash!.startsWith('scrypt$'));
 check('recovery admins are not founders', !nina.isFounder);
 check(
-  'business name untouched by recovery',
-  db.select().from(appSettings).where(eq(appSettings.key, 'org.name')).get()?.value === 'Cedar Supply',
+  'recovery stores no board name either',
+  await db.select().from(appSettings).where(eq(appSettings.key, 'org.name')).get() === undefined,
 );
-check('recovery code consumed', !setup.verifySetupCode(recoveryCode!));
-check('recovery door closed again', !setup.canRecover());
-check('board now holds two people', db.select({ id: users.id }).from(users).all().length === 2);
+check('recovery code consumed', !await setup.verifySetupCode(recoveryCode!));
+check('recovery door closed again', !await setup.canRecover());
+check('board now holds two people', (await db.select({ id: users.id }).from(users).all()).length === 2);
 
 section('Push keys provision themselves');
-const keyOnce = notify.vapidPublicKey();
+const keyOnce = await notify.vapidPublicKey();
 check('a public key exists without any .env editing', typeof keyOnce === 'string' && keyOnce.length > 40);
-const stored = db.select().from(appSettings).where(eq(appSettings.key, 'vapid.keys')).get();
+const stored = await db.select().from(appSettings).where(eq(appSettings.key, 'vapid.keys')).get();
 check('the pair was saved to the database', stored !== undefined);
 const pair = JSON.parse(stored!.value) as { publicKey: string; privateKey: string };
 check('saved public half matches what the browser gets', pair.publicKey === keyOnce);
-check('push reports configured', notify.pushConfigured());
-const keyTwice = notify.vapidPublicKey();
+check('push reports configured', await notify.pushConfigured());
+const keyTwice = await notify.vapidPublicKey();
 check('second read returns the same key — no regeneration', keyTwice === keyOnce);
 
 process.env.VAPID_PUBLIC_KEY = 'env-public-key-for-override-test';
 process.env.VAPID_PRIVATE_KEY = 'env-private-key-for-override-test';
 check(
   'environment variables take priority when set',
-  notify.vapidPublicKey() === 'env-public-key-for-override-test',
+  await notify.vapidPublicKey() === 'env-public-key-for-override-test',
 );
 delete process.env.VAPID_PUBLIC_KEY;
 delete process.env.VAPID_PRIVATE_KEY;
-check('and the database pair is untouched afterwards', notify.vapidPublicKey() === keyOnce);
+check('and the database pair is untouched afterwards', await notify.vapidPublicKey() === keyOnce);
 
 if (failures > 0) {
   console.log(`\n${failures} check(s) FAILED.`);

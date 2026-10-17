@@ -10,7 +10,7 @@ export default async function LoginPage({
   searchParams: Promise<{ next?: string }>;
 }) {
   const { next } = await searchParams;
-  const people = listActiveUsers().map(toPersonSummary);
+  const people = (await listActiveUsers()).map(toPersonSummary);
 
   // A board with nobody on it has not been activated yet — send whoever found
   // this address straight to first-run setup instead of an empty picker.

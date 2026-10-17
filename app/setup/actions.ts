@@ -17,12 +17,12 @@ async function clientIp(): Promise<string> {
 
 /** Step-one feedback only. The redemption re-checks everything for real. */
 export async function checkSetupCodeAction(code: string): Promise<boolean> {
-  if (hasActiveUsers()) return false;
+  if (await hasActiveUsers()) return false;
   // This endpoint answers "is that the code?", so it is exactly what a
   // guesser would drive — cap it like the redemption itself.
   const limit = rateLimit(`setup:check:${await clientIp()}`, 10, 60_000);
   if (!limit.allowed) return false;
-  return verifySetupCode(code);
+  return await verifySetupCode(code);
 }
 
 /**
@@ -35,14 +35,13 @@ export async function checkSetupCodeAction(code: string): Promise<boolean> {
  */
 export async function completeSetupAction(
   code: string,
-  orgName: string,
   adminName: string,
   pin: string,
   confirm: string,
 ): Promise<SetupResult> {
   const ip = await clientIp();
 
-  if (hasActiveUsers()) {
+  if (await hasActiveUsers()) {
     return { ok: false, code: 'TASQ-E0502', message: 'This board has already been set up. Sign in instead.' };
   }
 
@@ -61,7 +60,7 @@ export async function completeSetupAction(
     return { ok: false, code: 'TASQ-E0507', message: 'Too many attempts. Wait a minute and try again.' };
   }
 
-  const result = await redeemSetupCode(code, orgName, adminName, pin, confirm);
+  const result = await redeemSetupCode(code, adminName, pin, confirm);
   if (!result.ok) {
     // Every refusal — including field-validation misses — feeds the ladder,
     // so a guesser cannot separate the code check from the noise.

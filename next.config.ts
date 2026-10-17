@@ -11,9 +11,17 @@ const nextConfig: NextConfig = {
   // The repo lives under a parent directory that has its own lockfile; pin the
   // root so Turbopack does not walk up out of the project.
   turbopack: { root: import.meta.dirname },
-  // better-sqlite3 is a native addon — it must stay a real require(), not be bundled.
-  serverExternalPackages: ['better-sqlite3'],
+  // The libsql client carries a native addon for local files; Next already
+  // keeps @libsql/client and libsql external by default, so nothing to list.
 };
+
+// Netlify is always HTTPS, so login cookies are marked Secure there. Inlined at
+// build time so the edge proxy and the server functions agree with nothing
+// extra to set in the Netlify UI. Never on the shop Mac, whose plain-HTTP LAN
+// address would then drop the cookie.
+if (process.env.NETLIFY === 'true') {
+  nextConfig.env = { ...nextConfig.env, TASQ_COOKIE_SECURE: 'true' };
+}
 
 // The board is reached over the Tailscale Funnel hostname and over a bare LAN
 // IP, neither of which Next can infer. Only opt into the setting when those

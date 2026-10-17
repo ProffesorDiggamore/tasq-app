@@ -28,17 +28,27 @@ export function AnnounceForm({ people }: { people: PersonSummary[] }) {
   const send = useCallback(() => {
     setMessage(null);
     startTransition(async () => {
-      const result = await sendAnnouncementAction(target, text);
-      if (result.ok) {
-        haptic('commit');
-        setSent(true);
-        setText('');
-      } else {
+      // A server action that rejects — the shop wifi dropping mid-send, the
+      // session expiring, the database busy — takes the whole transition down
+      // with it: `pending` never clears, so the button stays "Sending…" and
+      // disabled, and the screen looks dead until the app is restarted. The
+      // person gets told instead, and the button comes back.
+      try {
+        const result = await sendAnnouncementAction(target, text);
+        if (result.ok) {
+          haptic('commit');
+          setSent(true);
+          setText('');
+        } else {
+          haptic('error');
+          setMessage(result.message);
+        }
+      } catch {
         haptic('error');
-        setMessage(result.message);
+        setMessage('Could not send that — check the connection and try again.');
       }
     });
-  }, [target, text, router]);
+  }, [target, text]);
 
   // Hold the "Sent" state for a beat, then head home. Kept in an effect so
   // leaving the screen early cancels the navigation instead of firing it

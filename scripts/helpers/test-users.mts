@@ -15,14 +15,14 @@ const TEST_USERS: ReadonlyArray<{ name: string; isAdmin: boolean }> = [
   { name: 'Alyssa', isAdmin: false },
 ];
 
-export function seedTestUsers(): void {
+export async function seedTestUsers(): Promise<void> {
   const now = Date.now();
   // Per-row so a script that already created someone (verify-auth redeems a
   // setup code into Chris first) just tops up the missing crew.
   for (const u of TEST_USERS) {
-    const exists = db.select({ id: users.id }).from(users).where(eq(users.name, u.name)).get();
+    const exists = await db.select({ id: users.id }).from(users).where(eq(users.name, u.name)).get();
     if (exists) continue;
-    db.insert(users)
+    await db.insert(users)
       .values({ name: u.name, isAdmin: u.isAdmin, createdAt: now })
       .onConflictDoNothing()
       .run();

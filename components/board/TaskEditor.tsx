@@ -151,7 +151,7 @@ export function TaskEditor({
 
       <CheckRow
         label="ASAP"
-        hint="Shows on the shared ASAP row for everyone."
+        hint="Marks it urgent for everyone who can see this board."
         checked={isAsap}
         onChange={setIsAsap}
       />

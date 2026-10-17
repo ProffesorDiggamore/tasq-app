@@ -25,7 +25,7 @@ export async function changeOwnPin(
 ): Promise<ActionResult> {
   if (actor.pinHash === null) return fail('You have no PIN set yet.');
 
-  const before = throttleState(actor.id, now);
+  const before = await throttleState(actor.id, now);
   if (before.locked) {
     return fail(`Too many tries. Wait ${formatLockout(before.retryAfterMs)}.`);
   }
@@ -33,8 +33,8 @@ export async function changeOwnPin(
   if (!isValidPinFormat(currentPin)) return fail('Enter your current 4-digit PIN.');
 
   if (!(await verifyPin(currentPin, actor.pinHash))) {
-    const after = recordFailure(actor.id, now);
-    logActivity(
+    const after = await recordFailure(actor.id, now);
+    await logActivity(
       {
         actorId: actor.id,
         verb: 'auth.failed',
@@ -59,10 +59,10 @@ export async function changeOwnPin(
   if (newPin !== confirmPin) return fail("Those didn't match. Start again.");
   if (newPin === currentPin) return fail('That is already your PIN.');
 
-  db.update(users).set({ pinHash: await hashPin(newPin) }).where(eq(users.id, actor.id)).run();
-  recordSuccess(actor.id, now);
+  await db.update(users).set({ pinHash: await hashPin(newPin) }).where(eq(users.id, actor.id)).run();
+  await recordSuccess(actor.id, now);
 
-  logActivity(
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'user.pin_changed',

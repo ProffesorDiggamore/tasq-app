@@ -74,7 +74,7 @@ export function RecurrenceList({
   return (
     <section>
       <div className="flex items-baseline gap-2 px-1">
-        <h2 className="type-label text-[var(--text-tertiary)]">Repeating tasks</h2>
+        <h2 className="type-label text-[var(--text-tertiary)]">Repeating tasqs</h2>
         {rules.length > 0 ? (
           <span className="type-caption text-[var(--text-tertiary)]">tap to edit</span>
         ) : null}
@@ -369,7 +369,7 @@ function RuleEditor({
 
       <CheckRow
         label="ASAP"
-        hint="Every copy lands on the shared ASAP row."
+        hint="Every copy is marked urgent for everyone who can see its board."
         checked={isAsap}
         onChange={setIsAsap}
       />
@@ -443,7 +443,7 @@ function RuleEditor({
           else setConfirmDelete(true);
         }}
       >
-        {confirmDelete ? 'Tap again to delete it' : 'Delete this repeating task'}
+        {confirmDelete ? 'Tap again to delete it' : 'Delete this repeating tasq'}
       </Button>
     </div>
   );

@@ -12,7 +12,7 @@ import { tasks } from '@/lib/db/schema';
  * Phase 8 hangs the actual push off the ids this returns.
  */
 export async function markOverdueTasks(now: number = Date.now()): Promise<number[]> {
-  const due = db
+  const due = await db
     .select({ id: tasks.id, assignedTo: tasks.assignedTo, title: tasks.title })
     .from(tasks)
     .where(
@@ -29,12 +29,12 @@ export async function markOverdueTasks(now: number = Date.now()): Promise<number
 
   const claimed: number[] = [];
   for (const task of due) {
-    const result = db
+    const result = await db
       .update(tasks)
       .set({ overdueNotifiedAt: now })
       .where(and(inArray(tasks.id, [task.id]), isNull(tasks.overdueNotifiedAt)))
       .run();
-    if (result.changes === 1) claimed.push(task.id);
+    if (result.rowsAffected === 1) claimed.push(task.id);
   }
 
   const { notifyOverdue } = await import('@/lib/notify');

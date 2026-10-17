@@ -1,9 +1,7 @@
 import 'server-only';
-import fs from 'node:fs';
 import { and, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
-import { db, sqlite } from '@/lib/db';
+import { client, db, REMOTE_DATABASE_URL } from '@/lib/db';
 import { activityLog, users } from '@/lib/db/schema';
-import { DB_PATH } from '@/lib/paths';
 import { localDateString, localWallClockToUtc, localWeekday } from '@/lib/time';
 import type { HistoryDay, HistoryRange } from '@/lib/history-types';
 
@@ -36,10 +34,10 @@ export interface HistoryQuery {
   limit?: number;
 }
 
-export function loadHistory(
+export async function loadHistory(
   query: HistoryQuery,
   now: number = Date.now(),
-): { days: HistoryDay[]; total: number; truncated: boolean } {
+): Promise<{ days: HistoryDay[]; total: number; truncated: boolean }> {
   const limit = query.limit ?? 500;
   const filters: SQL[] = [];
 
@@ -54,7 +52,7 @@ export function loadHistory(
     );
   }
 
-  const rows = db
+  const rows = await db
     .select({
       id: activityLog.id,
       actorId: activityLog.actorId,
@@ -89,8 +87,8 @@ export function loadHistory(
 }
 
 /** Older than the retained window; used only to caption an empty result. */
-export function hasAnyHistory(): boolean {
-  return db.select({ id: activityLog.id }).from(activityLog).limit(1).all().length > 0;
+export async function hasAnyHistory(): Promise<boolean> {
+  return (await db.select({ id: activityLog.id }).from(activityLog).limit(1).all()).length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,35 +108,49 @@ export function __resetPruneGateForTests(): void {
   lastPruneAt = 0;
 }
 
-export function pruneHistory(now: number = Date.now()): { removed: number; vacuumed: boolean } {
+/** Size of the database, from SQLite itself so it works for the local file and for Turso alike. */
+async function databaseBytes(): Promise<number> {
+  try {
+    const pages = await client.execute('PRAGMA page_count');
+    const size = await client.execute('PRAGMA page_size');
+    return Number(pages.rows[0]?.[0] ?? 0) * Number(size.rows[0]?.[0] ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+export async function pruneHistory(now: number = Date.now()): Promise<{ removed: number; vacuumed: boolean }> {
   if (now - lastPruneAt < PRUNE_EVERY_MS) return { removed: 0, vacuumed: false };
   lastPruneAt = now;
 
-  const result = db
+  const result = await db
     .delete(activityLog)
     .where(lt(activityLog.createdAt, now - MONTH_MS))
     .run();
-  let removed = result.changes;
+  let removed = result.rowsAffected;
   let vacuumed = false;
 
-  if (fs.statSync(DB_PATH).size > STORAGE_CAP_BYTES) {
+  if ((await databaseBytes()) > STORAGE_CAP_BYTES) {
     // The cap tripped even with everything older than a month gone, so the
     // recent log alone is huge. Drop the oldest quarter. VACUUM only here:
     // it rewrites the whole database file, which is wasted work on the
     // routine monthly prune.
-    const total = db.select({ n: sql<number>`count(*)` }).from(activityLog).get()?.n ?? 0;
+    const total = (await db.select({ n: sql<number>`count(*)` }).from(activityLog).get())?.n ?? 0;
     if (total > 0) {
-      const drop = db
+      const drop = await db
         .delete(activityLog)
         .where(
           sql`activity_log.id IN (SELECT id FROM activity_log ORDER BY created_at ASC LIMIT ${Math.ceil(total / 4)})`,
         )
         .run();
-      removed += drop.changes;
-      sqlite.exec('VACUUM');
-      vacuumed = true;
+      removed += drop.rowsAffected;
+      // Turso manages its own storage; VACUUM is for the local file.
+      if (!REMOTE_DATABASE_URL) {
+        await client.execute('VACUUM');
+        vacuumed = true;
+      }
       console.log(
-        `[tasq] history exceeded the 1 GB storage cap — dropped the oldest ${drop.changes} entr${drop.changes === 1 ? 'y' : 'ies'} and compacted.`,
+        `[tasq] history exceeded the 1 GB storage cap — dropped the oldest ${drop.rowsAffected} entr${drop.rowsAffected === 1 ? 'y' : 'ies'} and compacted.`,
       );
     }
   }

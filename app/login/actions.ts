@@ -5,14 +5,14 @@ import { eq, isNull, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 import { hashPin, isValidPinFormat, verifyPin } from '@/lib/auth/pin';
-import { formatLockout, recordFailure, recordSuccess, throttleState } from '@/lib/auth/throttle';
+import { formatLockout, recordSuccess, reserveAttempt, settleFailure, throttleState } from '@/lib/auth/throttle';
 import { signIn, signOut } from '@/lib/auth/session';
 import { logActivity } from '@/lib/activity';
 import { rateLimit } from '@/lib/rate-limit';
 import type { LoginResult } from '@/lib/auth/results';
 
-function activeUser(userId: number) {
-  return db
+async function activeUser(userId: number) {
+  return await db
     .select()
     .from(users)
     .where(and(eq(users.id, userId), isNull(users.archivedAt)))
@@ -53,7 +53,7 @@ export async function enrollPinAction(
   pin: string,
   confirm: string,
 ): Promise<LoginResult> {
-  const user = activeUser(userId);
+  const user = await activeUser(userId);
   if (!user) return { ok: false, reason: 'unknown-user', code: 'TASQ-E0109' };
   // Without this, anyone could overwrite an enrolled person's PIN from the picker.
   if (user.pinHash !== null) return { ok: false, reason: 'already-enrolled', code: 'TASQ-E0107' };
@@ -61,9 +61,9 @@ export async function enrollPinAction(
   if (pin !== confirm) return { ok: false, reason: 'mismatch', code: 'TASQ-E0106' };
 
   const pinHash = await hashPin(pin);
-  db.update(users).set({ pinHash }).where(eq(users.id, userId)).run();
-  recordSuccess(userId);
-  logActivity({
+  await db.update(users).set({ pinHash }).where(eq(users.id, userId)).run();
+  await recordSuccess(userId);
+  await logActivity({
     actorId: userId,
     verb: 'user.pin_enrolled',
     subjectType: 'user',
@@ -76,12 +76,12 @@ export async function enrollPinAction(
 
 /** Every later tap on a name. */
 export async function submitPinAction(userId: number, pin: string): Promise<LoginResult> {
-  const user = activeUser(userId);
+  const user = await activeUser(userId);
   if (!user) return { ok: false, reason: 'unknown-user', code: 'TASQ-E0109' };
   if (user.pinHash === null) return { ok: false, reason: 'not-enrolled', code: 'TASQ-E0108' };
 
   // Checked before the hash so a locked-out attacker cannot even spend our CPU.
-  const before = throttleState(user.id);
+  const before = await throttleState(user.id);
   if (before.locked) {
     return {
       ok: false,
@@ -94,13 +94,29 @@ export async function submitPinAction(userId: number, pin: string): Promise<Logi
 
   if (!isValidPinFormat(pin)) return { ok: false, reason: 'bad-format', code: 'TASQ-E0105' };
 
+  // The try is spent before the hash is checked, so guesses fired in parallel
+  // cannot all slip past the lock check above (see reserveAttempt).
+  if (!(await reserveAttempt(user.id))) {
+    const now = await throttleState(user.id);
+    // Not locked yet means the last tries are still being checked; a short wait
+    // answers it either way.
+    const retryAfterMs = now.locked ? now.retryAfterMs : 5_000;
+    return {
+      ok: false,
+      reason: 'locked',
+      code: 'TASQ-E0104',
+      retryAfterMs,
+      message: formatLockout(retryAfterMs),
+    };
+  }
+
   const good = await verifyPin(pin, user.pinHash);
   if (!good) {
     const ipBlocked = await ipFailureBudget();
     if (ipBlocked) return ipBlocked;
 
-    const after = recordFailure(user.id);
-    logActivity({
+    const after = await settleFailure(user.id);
+    await logActivity({
       actorId: user.id,
       verb: 'auth.failed',
       subjectType: 'user',
@@ -121,7 +137,7 @@ export async function submitPinAction(userId: number, pin: string): Promise<Logi
     return { ok: false, reason: 'wrong-pin', code: 'TASQ-E0103', attemptsRemaining: after.attemptsRemaining };
   }
 
-  recordSuccess(user.id);
+  await recordSuccess(user.id);
   await signIn(user.id);
   return { ok: true };
 }

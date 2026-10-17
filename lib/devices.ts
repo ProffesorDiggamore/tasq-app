@@ -30,12 +30,12 @@ export const DEVICE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 
 const WHITELIST_KEY = 'whitelist.enabled';
 
-export function whitelistEnabled(): boolean {
-  return getSetting(WHITELIST_KEY) === 'true';
+export async function whitelistEnabled(): Promise<boolean> {
+  return await getSetting(WHITELIST_KEY) === 'true';
 }
 
 /** The token never leaves the browser; only this does. */
-function hashToken(token: string): string {
+export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
@@ -86,7 +86,7 @@ export interface GateResult {
  * before the request reaches here, because a Server Component may not set one.
  */
 export async function deviceGate(viewerId: number | null = null): Promise<GateResult> {
-  if (!whitelistEnabled()) return { status: 'off', label: null };
+  if (!await whitelistEnabled()) return { status: 'off', label: null };
 
   const token = (await cookies()).get(DEVICE_COOKIE)?.value;
   // No token yet means the very first request of a browsing session, before
@@ -95,7 +95,7 @@ export async function deviceGate(viewerId: number | null = null): Promise<GateRe
   if (!token) return { status: 'pending', label: null };
 
   const userAgent = (await headers()).get('user-agent');
-  const row = touchDevice(token, userAgent, viewerId);
+  const row = await touchDevice(token, userAgent, viewerId);
   return { status: row.status, label: row.label };
 }
 
@@ -111,24 +111,24 @@ export async function deviceAllowed(): Promise<boolean> {
 }
 
 /** Upsert-and-stamp. Separate from the gate so a script can call it too. */
-export function touchDevice(
+export async function touchDevice(
   token: string,
   userAgent: string | null,
   viewerId: number | null = null,
   now: number = Date.now(),
-): Device {
+): Promise<Device> {
   const tokenHash = hashToken(token);
-  const existing = db.select().from(devices).where(eq(devices.tokenHash, tokenHash)).get();
+  const existing = await db.select().from(devices).where(eq(devices.tokenHash, tokenHash)).get();
 
   if (existing) {
-    db.update(devices)
+    await db.update(devices)
       .set({ lastSeenAt: now, lastUserId: viewerId ?? existing.lastUserId })
       .where(eq(devices.id, existing.id))
       .run();
     return { ...existing, lastSeenAt: now, lastUserId: viewerId ?? existing.lastUserId };
   }
 
-  return db
+  return await db
     .insert(devices)
     .values({
       tokenHash,
@@ -144,8 +144,8 @@ export function touchDevice(
 }
 
 /** Waiting first, then approved, each newest-seen first. */
-export function listDevices(): { waiting: DeviceRow[]; approved: DeviceRow[]; blocked: DeviceRow[] } {
-  const rows = db
+export async function listDevices(): Promise<{ waiting: DeviceRow[]; approved: DeviceRow[]; blocked: DeviceRow[] }> {
+  const rows = await db
     .select({
       id: devices.id,
       label: devices.label,
@@ -175,23 +175,23 @@ export function listDevices(): { waiting: DeviceRow[]; approved: DeviceRow[]; bl
   };
 }
 
-export function pendingDeviceCount(): number {
-  if (!whitelistEnabled()) return 0;
-  return db.select({ id: devices.id }).from(devices).where(eq(devices.status, 'pending')).all()
+export async function pendingDeviceCount(): Promise<number> {
+  if (!await whitelistEnabled()) return 0;
+  return (await db.select({ id: devices.id }).from(devices).where(eq(devices.status, 'pending')).all())
     .length;
 }
 
-export function setDeviceStatus(
+export async function setDeviceStatus(
   admin: User,
   deviceId: number,
   status: 'approved' | 'pending' | 'blocked',
   now: number = Date.now(),
-): ActionResult {
-  const device = db.select().from(devices).where(eq(devices.id, deviceId)).get();
+): Promise<ActionResult> {
+  const device = await db.select().from(devices).where(eq(devices.id, deviceId)).get();
   if (!device) return fail('That device is gone.');
   if (device.status === status) return ok;
 
-  db.update(devices)
+  await db.update(devices)
     .set({
       status,
       approvedBy: status === 'approved' ? admin.id : null,
@@ -200,7 +200,7 @@ export function setDeviceStatus(
     .where(eq(devices.id, deviceId))
     .run();
 
-  logActivity(
+  await logActivity(
     {
       actorId: admin.id,
       verb: status === 'approved' ? 'device.approved' : 'device.revoked',
@@ -216,20 +216,20 @@ export function setDeviceStatus(
   return ok;
 }
 
-export function renameDevice(
+export async function renameDevice(
   admin: User,
   deviceId: number,
   rawLabel: string,
   now: number = Date.now(),
-): ActionResult {
+): Promise<ActionResult> {
   const label = rawLabel.trim().replace(/\s+/g, ' ').slice(0, 40);
   if (label.length < 2) return fail('Give it a name of at least two characters.');
 
-  const device = db.select().from(devices).where(eq(devices.id, deviceId)).get();
+  const device = await db.select().from(devices).where(eq(devices.id, deviceId)).get();
   if (!device) return fail('That device is gone.');
 
-  db.update(devices).set({ label }).where(eq(devices.id, deviceId)).run();
-  logActivity(
+  await db.update(devices).set({ label }).where(eq(devices.id, deviceId)).run();
+  await logActivity(
     {
       actorId: admin.id,
       verb: 'device.renamed',
@@ -242,12 +242,12 @@ export function renameDevice(
   return ok;
 }
 
-export function forgetDevice(admin: User, deviceId: number, now: number = Date.now()): ActionResult {
-  const device = db.select().from(devices).where(eq(devices.id, deviceId)).get();
+export async function forgetDevice(admin: User, deviceId: number, now: number = Date.now()): Promise<ActionResult> {
+  const device = await db.select().from(devices).where(eq(devices.id, deviceId)).get();
   if (!device) return fail('That device is gone.');
 
-  db.delete(devices).where(eq(devices.id, deviceId)).run();
-  logActivity(
+  await db.delete(devices).where(eq(devices.id, deviceId)).run();
+  await logActivity(
     {
       actorId: admin.id,
       verb: 'device.revoked',
@@ -266,33 +266,33 @@ export function forgetDevice(admin: User, deviceId: number, now: number = Date.n
  * device already seen drops to pending — the point of switching this on is to
  * decide about them one at a time.
  */
-export function setWhitelistEnabled(
+export async function setWhitelistEnabled(
   admin: User,
   enabled: boolean,
   currentToken: string | null,
   userAgent: string | null,
   now: number = Date.now(),
-): ActionResult {
+): Promise<ActionResult> {
   if (enabled && !currentToken) {
     return fail('Reload the page once, then turn it on — this browser has no device ID yet.');
   }
 
-  setSetting(WHITELIST_KEY, enabled ? 'true' : 'false');
+  await setSetting(WHITELIST_KEY, enabled ? 'true' : 'false');
 
   if (enabled && currentToken) {
-    const mine = touchDevice(currentToken, userAgent, admin.id, now);
-    db.update(devices)
+    const mine = await touchDevice(currentToken, userAgent, admin.id, now);
+    await db.update(devices)
       .set({ status: 'approved', approvedBy: admin.id, approvedAt: now })
       .where(eq(devices.id, mine.id))
       .run();
     // Anything else that has ever hit this board is a decision, not a default.
-    db.update(devices)
+    await db.update(devices)
       .set({ status: 'pending', approvedBy: null, approvedAt: null })
       .where(ne(devices.id, mine.id))
       .run();
   }
 
-  logActivity(
+  await logActivity(
     {
       actorId: admin.id,
       verb: 'device.whitelist',
@@ -306,11 +306,11 @@ export function setWhitelistEnabled(
 }
 
 /** Used by scripts/devices.mts, which is the way back in if every device is out. */
-export function approveByLabelFragment(fragment: string, now: number = Date.now()): number {
-  const rows = db.select().from(devices).where(isNull(devices.approvedAt)).all();
+export async function approveByLabelFragment(fragment: string, now: number = Date.now()): Promise<number> {
+  const rows = await db.select().from(devices).where(isNull(devices.approvedAt)).all();
   const matches = rows.filter((d) => d.label.toLowerCase().includes(fragment.toLowerCase()));
   for (const d of matches) {
-    db.update(devices).set({ status: 'approved', approvedAt: now }).where(eq(devices.id, d.id)).run();
+    await db.update(devices).set({ status: 'approved', approvedAt: now }).where(eq(devices.id, d.id)).run();
   }
   return matches.length;
 }

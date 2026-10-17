@@ -63,7 +63,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   const taskId = parseTaskId(id);
   if (taskId === null) return notFound();
 
-  const row = db
+  const row = await db
     .select({ mime: taskPhotos.mime, bytes: taskPhotos.bytes, thumbBytes: taskPhotos.thumbBytes, updatedAt: taskPhotos.updatedAt })
     .from(taskPhotos)
     .where(eq(taskPhotos.taskId, taskId))
@@ -101,7 +101,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   // The task itself must still exist (cancelling is a status, not a delete,
   // so proof survives on history — but a made-up id rejects here).
-  const task = db.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, taskId)).get();
+  const task = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) return notFound();
 
   // Full photo and thumbnail travel as one multipart body. They must NOT ride
@@ -141,7 +141,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   const now = Date.now();
   // taskId is the primary key, so this is a true upsert — replacing a photo
   // overwrites the old bytes, nothing is ever duplicated.
-  db.insert(taskPhotos)
+  await db.insert(taskPhotos)
     .values({ taskId, bytes: Buffer.from(body), thumbBytes, mime: 'image/jpeg', createdAt: now, updatedAt: now })
     .onConflictDoUpdate({
       target: taskPhotos.taskId,
@@ -167,6 +167,6 @@ export async function DELETE(request: Request, { params }: RouteParams) {
   const taskId = parseTaskId(id);
   if (taskId === null) return notFound();
 
-  db.delete(taskPhotos).where(eq(taskPhotos.taskId, taskId)).run();
+  await db.delete(taskPhotos).where(eq(taskPhotos.taskId, taskId)).run();
   return NextResponse.json({ ok: true });
 }

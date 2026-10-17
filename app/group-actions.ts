@@ -18,21 +18,21 @@ function refresh(): void {
 
 export async function createGroupAction(name: string): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const { groupId: _groupId, ...result } = groups.createGroup(admin, name);
+  const { groupId: _groupId, ...result } = await groups.createGroup(admin, name);
   if (result.ok) refresh();
   return result;
 }
 
 export async function renameGroupAction(groupId: number, name: string): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const result = groups.renameGroup(admin, groupId, name);
+  const result = await groups.renameGroup(admin, groupId, name);
   if (result.ok) refresh();
   return result;
 }
 
 export async function archiveGroupAction(groupId: number): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const result = groups.archiveGroup(admin, groupId);
+  const result = await groups.archiveGroup(admin, groupId);
   if (result.ok) refresh();
   return result;
 }
@@ -42,7 +42,7 @@ export async function setGroupMembersAction(
   userIds: number[],
 ): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const result = groups.setGroupMembers(admin, groupId, userIds);
+  const result = await groups.setGroupMembers(admin, groupId, userIds);
   if (result.ok) refresh();
   return result;
 }

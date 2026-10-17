@@ -12,7 +12,7 @@ export default async function DevicesPage() {
   // Who gets through the front door is the owner's call alone.
   if (!user.isAdmin) redirect('/');
 
-  const { waiting, approved, blocked } = listDevices();
+  const { waiting, approved, blocked } = await listDevices();
 
   return (
     <>
@@ -21,10 +21,10 @@ export default async function DevicesPage() {
         userName={user.name}
         isAdmin={user.isAdmin}
         title="Devices"
-        backHref="/settings"
+        backHref="/settings?s=team"
       />
       <DevicesScreen
-        enabled={whitelistEnabled()}
+        enabled={await whitelistEnabled()}
         waiting={waiting}
         approved={approved}
         blocked={blocked}

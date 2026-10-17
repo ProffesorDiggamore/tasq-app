@@ -1,5 +1,5 @@
 import 'server-only';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { migrate } from 'drizzle-orm/libsql/migrator';
 import { db } from './index';
 import { MIGRATIONS_DIR } from '@/lib/paths';
 import { ensureSetupCode } from '@/lib/setup';
@@ -12,9 +12,9 @@ let done = false;
  * harmless. A fresh install starts with zero people: the owner redeems the
  * setup code at /setup to create the first admin account.
  */
-export function initDatabase(): void {
+export async function initDatabase(): Promise<void> {
   if (done) return;
-  migrate(db, { migrationsFolder: MIGRATIONS_DIR });
-  ensureSetupCode();
+  await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+  await ensureSetupCode();
   done = true;
 }

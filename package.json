@@ -3,8 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "predev": "bash scripts/check-port.sh",
     "dev": "next dev --port 4744",
     "build": "next build",
+    "build:netlify": "npm run netlify:prepare && next build",
+    "netlify:prepare": "NODE_OPTIONS=--conditions=react-server tsx scripts/netlify-prepare.mts",
+    "copy-to-turso": "tsx scripts/copy-to-turso.mts",
+    "prestart": "bash scripts/check-port.sh",
     "start": "next start --port ${PORT:-4744}",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
@@ -21,14 +26,14 @@
     "verify:notify": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-notify.mts",
     "verify:push": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-push.mts",
     "verify:editing": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-editing.mts",
-    "verify:setup": "bash scripts/verify-setup.sh",
+    "verify:setup": "bash scripts/verify-setup.sh && bash scripts/verify-update.sh",
     "verify:payouts": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-payouts.mts",
     "verify:analytics": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-analytics.mts",
     "verify:devices": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-devices.mts",
     "seed:board": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-board.mts"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
+    "@libsql/client": "^0.18.0",
     "drizzle-orm": "^0.45.2",
     "iron-session": "^8.0.4",
     "motion": "^13.1.0",
@@ -42,7 +47,6 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",

@@ -46,62 +46,60 @@ function readSetupCodeFile(): string {
     .trim();
 }
 
-initDatabase();
+await initDatabase();
 
 section('First boot');
-const freshBoot = db.select().from(users).all();
+const freshBoot = await db.select().from(users).all();
 check('a fresh install has zero people', freshBoot.length === 0, `got ${freshBoot.length}`);
 const code = readSetupCodeFile();
-check('a setup code was minted', verifySetupCode(code));
+check('a setup code was minted', await verifySetupCode(code));
 
 section('Setup redemption');
 check(
   'wrong code refused',
-  !(await redeemSetupCode('AAAA-BBBB', 'Shop', 'Chris', '1234', '1234')).ok,
+  !(await redeemSetupCode('AAAA-BBBB', 'Chris', '1234', '1234')).ok,
 );
 check(
   'mismatched PIN refused',
-  !(await redeemSetupCode(code, 'Shop', 'Chris', '1234', '9999')).ok,
+  !(await redeemSetupCode(code, 'Chris', '1234', '9999')).ok,
 );
 check(
   'short name refused',
-  !(await redeemSetupCode(code, 'Shop', 'C', '1234', '1234')).ok,
+  !(await redeemSetupCode(code, 'C', '1234', '1234')).ok,
 );
-check('code still unclaimed after refusals', verifySetupCode(code));
+check('code still unclaimed after refusals', await verifySetupCode(code));
 // Lowercase and missing dash both normalise to the same code.
 const redeemed = await redeemSetupCode(
   code.toLowerCase().replace('-', ''),
-  'Idaho Supply Co',
   'Chris',
   '2481',
   '2481',
 );
 check('code redeems into the first admin', redeemed.ok);
-const chrisRow = db.select().from(users).where(eq(users.name, 'Chris')).get();
-check('exactly one person now', db.select({ id: users.id }).from(users).all().length === 1);
+const chrisRow = await db.select().from(users).where(eq(users.name, 'Chris')).get();
+check('exactly one person now', (await db.select({ id: users.id }).from(users).all()).length === 1);
 check('they are an admin', chrisRow?.isAdmin === true);
 check('their PIN is hashed', (chrisRow?.pinHash ?? '').startsWith('scrypt$'));
-check('business name stored', getSetting('org.name') === 'Idaho Supply Co');
-check('code consumed', !verifySetupCode(code));
+check('code consumed', !await verifySetupCode(code));
 check(
   'code file deleted itself after redemption',
   !fs.existsSync(path.join(path.dirname(process.env.TASQ_DB_PATH!), 'setup-code.txt')),
 );
-const staleInitial = await redeemSetupCode(code, 'Other Shop', 'Nina', '1111', '1111');
+const staleInitial = await redeemSetupCode(code, 'Nina', '1111', '1111');
 check('second redemption refused', !staleInitial.ok && staleInitial.reason === 'already-set-up');
 check(
   'refused redemption added nobody',
-  db.select({ id: users.id }).from(users).all().length === 1,
+  (await db.select({ id: users.id }).from(users).all()).length === 1,
 );
 
-initDatabase();
-const afterSecondBoot = db.select().from(users).all();
+await initDatabase();
+const afterSecondBoot = await db.select().from(users).all();
 check('re-running boot mints nobody and nothing new', afterSecondBoot.length === 1);
 
-seedTestUsers();
+await seedTestUsers();
 
 section('Test crew');
-const seeded = db.select().from(users).orderBy(users.id).all();
+const seeded = await db.select().from(users).orderBy(users.id).all();
 check('five people on the crew', seeded.length === 5, `got ${seeded.length}`);
 check(
   'Landon, Tony, Shelly and Alyssa joined Chris',
@@ -137,15 +135,15 @@ check('same PIN salts differently', second !== hash);
 
 section('Login throttle');
 const tony = seeded.find((u) => u.name === 'Tony')!;
-const fresh = throttle.throttleState(tony.id);
+const fresh = await throttle.throttleState(tony.id);
 check('starts unlocked with 5 tries', !fresh.locked && fresh.attemptsRemaining === 5);
 
-let state = throttle.throttleState(tony.id);
+let state = await throttle.throttleState(tony.id);
 for (let i = 1; i <= 4; i += 1) {
-  state = throttle.recordFailure(tony.id);
+  state = await throttle.recordFailure(tony.id);
   check(`failure ${i} leaves ${5 - i} tries, still unlocked`, !state.locked && state.attemptsRemaining === 5 - i);
 }
-state = throttle.recordFailure(tony.id);
+state = await throttle.recordFailure(tony.id);
 check('fifth failure locks out', state.locked);
 check(
   'first lockout is about 60 seconds',
@@ -155,7 +153,7 @@ check(
 
 // Serve the lockout, then burn five more to prove the doubling.
 const past = Date.now() + 61_000;
-for (let i = 0; i < 5; i += 1) state = throttle.recordFailure(tony.id, past);
+for (let i = 0; i < 5; i += 1) state = await throttle.recordFailure(tony.id, past);
 check(
   'second lockout doubles to about 120 seconds',
   state.retryAfterMs > 115_000 && state.retryAfterMs <= 120_000,
@@ -163,34 +161,41 @@ check(
 );
 
 const later = past + 121_000;
-let third = throttle.throttleState(tony.id, later);
+let third = await throttle.throttleState(tony.id, later);
 check('lockout expires on its own', !third.locked);
-for (let i = 0; i < 5; i += 1) third = throttle.recordFailure(tony.id, later);
+for (let i = 0; i < 5; i += 1) third = await throttle.recordFailure(tony.id, later);
 check(
   'third lockout doubles again to about 240 seconds',
   third.retryAfterMs > 235_000 && third.retryAfterMs <= 240_000,
   `${third.retryAfterMs}ms`,
 );
 
-throttle.recordSuccess(tony.id);
-const cleared = throttle.throttleState(tony.id);
+await throttle.recordSuccess(tony.id);
+const cleared = await throttle.throttleState(tony.id);
 check('a correct PIN clears the counter and the doubling', !cleared.locked && cleared.attemptsRemaining === 5);
-const throttleRow = db.select().from(loginThrottle).where(eq(loginThrottle.userId, tony.id)).get();
+const throttleRow = await db.select().from(loginThrottle).where(eq(loginThrottle.userId, tony.id)).get();
 check('lockout level reset to zero', throttleRow?.lockoutLevel === 0);
+
+// Twenty guesses fired at once: only five may get as far as the hash.
+const volley = await Promise.all(Array.from({ length: 20 }, () => throttle.reserveAttempt(tony.id)));
+check('parallel guesses get five tries, not twenty', volley.filter(Boolean).length === 5, `${volley.filter(Boolean).length}`);
+await Promise.all(volley.filter(Boolean).map(() => throttle.settleFailure(tony.id)));
+check('and those five lock the person out', (await throttle.throttleState(tony.id)).locked);
+await throttle.recordSuccess(tony.id);
 
 check('60s formats as seconds', throttle.formatLockout(60_000) === '60 seconds');
 check('120s formats as minutes', throttle.formatLockout(120_000) === '2 minutes');
 
 section('Activity log is append-only');
 const { logActivity } = await import('../lib/activity');
-logActivity({
+await logActivity({
   actorId: tony.id,
   verb: 'auth.failed',
   subjectType: 'user',
   subjectId: tony.id,
   summary: 'Failed PIN for Tony (2 tries left)',
 });
-const entries = db.select().from(activityLog).all();
+const entries = await db.select().from(activityLog).all();
 // The setup redemption above already wrote one entry; this is the second.
 check('entry written', entries.some((e) => e.summary === 'Failed PIN for Tony (2 tries left)'));
 check(

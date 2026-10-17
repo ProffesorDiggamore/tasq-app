@@ -19,9 +19,9 @@ export default async function NewTaskPage({
   // reward field is admin-only — in the form below and again in the machine.
   const { g } = await searchParams;
   const asked = g && /^\d+$/.test(g) ? Number(g) : null;
-  const groupId = asked !== null && canUseGroup(user, asked) ? asked : null;
+  const groupId = asked !== null && await canUseGroup(user, asked) ? asked : null;
 
-  const people = listActiveUsers().map(toPersonSummary);
+  const people = (await listActiveUsers()).map(toPersonSummary);
 
   return (
     <>
@@ -29,14 +29,14 @@ export default async function NewTaskPage({
         userId={user.id}
         userName={user.name}
         isAdmin={user.isAdmin}
-        title="New task"
+        title="New tasq"
         backHref={groupId === null ? '/' : `/?g=${groupId}`}
       />
       <NewTaskForm
         people={people}
         viewerId={user.id}
         canSetReward={user.isAdmin}
-        tabs={tabsForUser(user)}
+        tabs={await tabsForUser(user)}
         initialGroupId={groupId}
       />
     </>

@@ -4,7 +4,7 @@
  * wrong". Lives outside the 'use server' file, which may only export functions.
  *
  * Every failure also carries its stable TASQ-E code (see lib/errors.ts and
- * ERROR-CODES.md) — the UI keeps speaking human, support gets the code.
+ * docs/ERROR-CODES.md) — the UI keeps speaking human, support gets the code.
  */
 import type { TasqErrorCode } from '@/lib/errors';
 

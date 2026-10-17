@@ -34,10 +34,10 @@ function section(name: string): void {
   console.log(`\n${name}`);
 }
 
-initDatabase();
-seedTestUsers();
+await initDatabase();
+await seedTestUsers();
 
-const all = db.select().from(users).all();
+const all = await db.select().from(users).all();
 const chris = all.find((u) => u.name === 'Chris')!; // admin
 const tony = all.find((u) => u.name === 'Tony')!; // crew
 const shelly = all.find((u) => u.name === 'Shelly')!; // crew
@@ -46,13 +46,13 @@ const DAY = 86_400_000;
 const now = Date.now();
 
 /** Post a task and immediately finish it, at a chosen moment in the past. */
-function finish(
+async function finish(
   by: typeof tony,
   title: string,
   at: number,
   opts: { rewardCents?: number | null; isAsap?: boolean; groupId?: number | null } = {},
-): number {
-  const created = machine.createTask(
+): Promise<number> {
+  const created = await machine.createTask(
     chris,
     {
       title,
@@ -68,7 +68,7 @@ function finish(
   if (!created.ok || created.taskId === undefined) {
     throw new Error(`createTask failed for ${title}: ${'message' in created ? created.message : ''}`);
   }
-  const done = machine.completeTask(by, created.taskId, at);
+  const done = await machine.completeTask(by, created.taskId, at);
   if (!done.ok) throw new Error(`completeTask failed for ${title}`);
   return created.taskId;
 }
@@ -81,17 +81,17 @@ check('every day is distinct', new Set(keys).size === 90, `${new Set(keys).size}
 
 section('A person counts their own work, and only their own');
 // Tony: one today, one yesterday, one the day before — a three-day run.
-finish(tony, 'Tony today', now);
-finish(tony, 'Tony yesterday', now - DAY);
-finish(tony, 'Tony two days ago', now - 2 * DAY);
+await finish(tony, 'Tony today', now);
+await finish(tony, 'Tony yesterday', now - DAY);
+await finish(tony, 'Tony two days ago', now - 2 * DAY);
 // A gap, then one more, so the run stops at three rather than four.
-finish(tony, 'Tony four days ago', now - 4 * DAY);
+await finish(tony, 'Tony four days ago', now - 4 * DAY);
 // Shelly's work must never land in Tony's numbers.
-finish(shelly, 'Shelly today', now);
-finish(shelly, 'Shelly today two', now);
+await finish(shelly, 'Shelly today', now);
+await finish(shelly, 'Shelly today two', now);
 
-const tonyView = analyticsFor(tony, now);
-const shellyView = analyticsFor(shelly, now);
+const tonyView = await analyticsFor(tony, now);
+const shellyView = await analyticsFor(shelly, now);
 
 check('Tony sees his four, not Shelly\'s two', tonyView.personal.done.d7 === 4, `${tonyView.personal.done.d7}`);
 check('Shelly sees her two', shellyView.personal.done.d7 === 2, `${shellyView.personal.done.d7}`);
@@ -110,16 +110,16 @@ check(
 check('two people were on the tools', tonyView.shop.activePeople === 2, `${tonyView.shop.activePeople}`);
 
 section('Money is the owner\'s, except your own');
-const paidTask = finish(tony, 'Bounty for Tony', now, { rewardCents: 2500 });
-finish(shelly, 'Bounty for Shelly', now, { rewardCents: 4000 });
-payouts.markTaskPaid(chris, paidTask, now);
+const paidTask = await finish(tony, 'Bounty for Tony', now, { rewardCents: 2500 });
+await finish(shelly, 'Bounty for Shelly', now, { rewardCents: 4000 });
+await payouts.markTaskPaid(chris, paidTask, now);
 
-const tonyMoney = analyticsFor(tony, now);
+const tonyMoney = await analyticsFor(tony, now);
 check('Tony sees the $25 he was paid', tonyMoney.personal.paidCents === 2500, `${tonyMoney.personal.paidCents}`);
 check('and nothing still owed to him', tonyMoney.personal.owedCents === 0, `${tonyMoney.personal.owedCents}`);
 check(
   'Shelly sees the $40 she is still owed',
-  analyticsFor(shelly, now).personal.owedCents === 4000,
+  (await analyticsFor(shelly, now)).personal.owedCents === 4000,
 );
 check('a crew member gets no admin block at all', tonyMoney.admin === undefined);
 check(
@@ -133,7 +133,7 @@ check(
   'a crew payload named another person',
 );
 
-const chrisView = analyticsFor(chris, now);
+const chrisView = await analyticsFor(chris, now);
 check('the owner does get one', chrisView.admin !== undefined);
 check('with the whole crew on it', (chrisView.admin?.crew.length ?? 0) === all.length, `${chrisView.admin?.crew.length}`);
 check('paid out is what was settled', chrisView.admin?.paidOutCents === 2500, `${chrisView.admin?.paidOutCents}`);
@@ -149,15 +149,15 @@ check(
 );
 
 section('A tab you are not on is not in your totals');
-const tabResult = groupsLib.createGroup(chris, 'Back office', now);
+const tabResult = await groupsLib.createGroup(chris, 'Back office', now);
 if (!tabResult.ok || tabResult.groupId === undefined) throw new Error('createGroup failed');
 const tabId = tabResult.groupId;
-groupsLib.setGroupMembers(chris, tabId, [shelly.id], now);
-finish(shelly, 'Back office job', now, { groupId: tabId });
+await groupsLib.setGroupMembers(chris, tabId, [shelly.id], now);
+await finish(shelly, 'Back office job', now, { groupId: tabId });
 
-const tonyAfterTab = analyticsFor(tony, now);
-const shellyAfterTab = analyticsFor(shelly, now);
-const chrisAfterTab = analyticsFor(chris, now);
+const tonyAfterTab = await analyticsFor(tony, now);
+const shellyAfterTab = await analyticsFor(shelly, now);
+const chrisAfterTab = await analyticsFor(chris, now);
 check(
   'Tony\'s shop total ignores the tab he is not on',
   tonyAfterTab.shop.done.d7 === tonyView.shop.done.d7 + 2,
@@ -168,7 +168,7 @@ check('the owner sees every tab', chrisAfterTab.shop.done.d7 === shellyAfterTab.
 
 section('Nothing at all is a shape the screen can render');
 const alyssa = all.find((u) => u.name === 'Alyssa')!;
-const empty = analyticsFor(alyssa, now);
+const empty = await analyticsFor(alyssa, now);
 check('an empty series is still dense', empty.personal.series.length === 90);
 check('a streak of nothing is zero, not null', empty.personal.streakDays === 0);
 check('no best day rather than a fake one', empty.personal.bestDay === null);
@@ -176,25 +176,25 @@ check('on-time is null when nothing had a due time', empty.personal.onTimePct ==
 check('all-time is zero', empty.personal.done.all === 0);
 
 section('ASAP and pool claims are counted separately');
-finish(tony, 'Urgent one', now, { isAsap: true });
-const pool = machine.createTask(
+await finish(tony, 'Urgent one', now, { isAsap: true });
+const pool = await machine.createTask(
   chris,
   { title: 'Up for grabs', notes: '', assignedTo: null, isAsap: false, dueLocal: null, rewardCents: null },
   now,
 );
-machine.claimTask(tony, pool.taskId!, now);
-machine.completeTask(tony, pool.taskId!, now);
-const tonyFinal = analyticsFor(tony, now);
+await machine.claimTask(tony, pool.taskId!, now);
+await machine.completeTask(tony, pool.taskId!, now);
+const tonyFinal = await analyticsFor(tony, now);
 check('the urgent one is counted as urgent', tonyFinal.personal.asapDone === 1, `${tonyFinal.personal.asapDone}`);
 check('the claimed one is counted as grabbed', tonyFinal.personal.claimedFromPool === 1, `${tonyFinal.personal.claimedFromPool}`);
 
 section('The board\'s own running figures');
-machine.createTask(
+await machine.createTask(
   chris,
   { title: 'Still open', notes: '', assignedTo: tony.id, isAsap: false, dueLocal: null, rewardCents: null },
   now,
 );
-const chrisRunning = analyticsFor(chris, now);
+const chrisRunning = await analyticsFor(chris, now);
 check('an unfinished task is open', chrisRunning.shop.openNow >= 1, `${chrisRunning.shop.openNow}`);
 check(
   'time-to-done is a real duration',

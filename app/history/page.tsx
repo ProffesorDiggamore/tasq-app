@@ -23,7 +23,7 @@ export default async function HistoryPage({
   const actorId = who && /^\d+$/.test(who) ? Number(who) : null;
   const text = (q ?? '').trim().slice(0, 100) || undefined;
 
-  const { days, truncated } = loadHistory({ range, actorId, text });
+  const { days, truncated } = await loadHistory({ range, actorId, text });
 
   return (
     <>
@@ -32,11 +32,11 @@ export default async function HistoryPage({
         userName={user.name}
         isAdmin={user.isAdmin}
         title="History"
-        backHref="/settings"
+        backHref="/settings?s=team"
       />
       <HistoryList
         days={days}
-        people={listAllUsers().map((u) => ({ id: u.id, name: u.name }))}
+        people={(await listAllUsers()).map((u) => ({ id: u.id, name: u.name }))}
         range={range}
         actorId={actorId}
         search={text ?? ''}

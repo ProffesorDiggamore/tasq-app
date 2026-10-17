@@ -219,10 +219,28 @@ export const pushSubscriptions = sqliteTable(
     p256dh: text('p256dh').notNull(),
     auth: text('auth').notNull(),
     userAgent: text('user_agent'),
+    /**
+     * SHA-256 of this browser's device cookie (lib/devices.ts) — the same
+     * value the devices table keys on, kept here directly so it works whether
+     * or not the device whitelist is switched on.
+     *
+     * Its job is deduplication. A phone mints a brand-new push endpoint every
+     * time the app is reinstalled or the service worker is replaced, and the
+     * old endpoint keeps accepting pushes for a while afterwards — so the
+     * endpoint-unique index alone is satisfied by two live rows for one phone,
+     * and that phone buzzes twice for every job. One device, one subscription.
+     *
+     * Nullable: rows written before this existed have no hash, and an old
+     * browser holding no cookie yet is not a reason to refuse a subscription.
+     */
+    deviceHash: text('device_hash'),
     createdAt: integer('created_at').notNull(),
     lastSeenAt: integer('last_seen_at').notNull(),
   },
-  (t) => [uniqueIndex('push_endpoint_unique').on(t.endpoint)],
+  (t) => [
+    uniqueIndex('push_endpoint_unique').on(t.endpoint),
+    index('push_device_idx').on(t.userId, t.deviceHash),
+  ],
 );
 
 /**

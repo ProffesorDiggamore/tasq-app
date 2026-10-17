@@ -19,9 +19,9 @@ export default async function PayoutsPage() {
         userName={user.name}
         isAdmin={user.isAdmin}
         title="Payouts"
-        backHref="/settings"
+        backHref="/settings?s=work"
       />
-      <PayoutsScreen people={outstandingPayouts()} serverNow={Date.now()} />
+      <PayoutsScreen people={await outstandingPayouts()} serverNow={Date.now()} />
     </>
   );
 }

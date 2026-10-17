@@ -1,61 +1,50 @@
 import 'server-only';
 import fs from 'node:fs';
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { createClient, type Client } from '@libsql/client';
+import { drizzle } from 'drizzle-orm/libsql';
 import * as schema from './schema';
 import { DATA_DIR, DB_PATH } from '@/lib/paths';
 
+/**
+ * Where the board's data lives.
+ *
+ * Hosted (Netlify), there is no disk that survives between requests, so the data
+ * is a Turso database reached over the network: TURSO_DATABASE_URL and
+ * TURSO_AUTH_TOKEN, set in Netlify's environment variables. Anywhere else — the
+ * shop Mac, `npm run dev`, every verify script — it is the same SQLite file it
+ * always was, opened through the same client, so there is one code path.
+ */
+export const REMOTE_DATABASE_URL = process.env.TURSO_DATABASE_URL?.trim() || null;
+
 declare global {
   // Reused across Next's dev-mode module reloads so we never open the file twice.
-  var __tasqSqlite: Database.Database | undefined;
+  var __tasqClient: Client | undefined;
 }
 
-function openDatabase(): Database.Database {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const conn = new Database(DB_PATH);
-
-  // busy_timeout goes FIRST, before anything that can contend.
-  //
-  // Switching a brand-new database into WAL needs an exclusive lock, and a
-  // production build collects page data in a worker per core — on a fresh
-  // install they all create the file and race for that lock at once, and
-  // whichever loses dies with SQLITE_BUSY and fails the build. With the timeout
-  // already in place they queue instead. Setting it afterwards is too late: the
-  // statement that needs it has already run.
-  conn.pragma('busy_timeout = 5000');
-
-  // WAL keeps readers from blocking the writer — five people on phones plus the
-  // scheduler all touch this file, and the nightly backup reads it live.
-  //
-  // Switching into WAL needs a brief exclusive lock and, unlike ordinary
-  // statements, SQLite can hand back SQLITE_BUSY for the pragma itself without
-  // honouring busy_timeout when several fresh connections race to create the
-  // file (a production build collects page data one worker per core) — and it
-  // surfaces as a thrown SqliteError, not a bad return value. Retry either way:
-  // whoever loses waits and tries again, and every attempt is idempotent once
-  // the file is already in WAL.
-  for (let attempt = 0; ; attempt += 1) {
-    let mode: string | undefined;
-    try {
-      mode = conn.pragma('journal_mode = WAL', { simple: true }) as string | undefined;
-    } catch (err) {
-      if (attempt >= 40) throw err;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
-      continue;
-    }
-    if (mode === 'wal') break;
-    if (attempt >= 40) {
-      throw new Error(`Could not switch ${DB_PATH} into WAL mode (last mode: ${mode})`);
-    }
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+function openClient(): Client {
+  if (REMOTE_DATABASE_URL) {
+    return createClient({ url: REMOTE_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN });
   }
-  conn.pragma('synchronous = NORMAL');
-  conn.pragma('foreign_keys = ON');
-  return conn;
+
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  // One connection, as before: the PRAGMAs below are per connection, and a pool
+  // would hand later statements a connection that never received them.
+  // `timeout` is SQLite's busy_timeout, set as the connection opens — before
+  // anything that can contend, which is where it has to be.
+  const client = createClient({ url: `file:${DB_PATH}`, concurrency: 1, timeout: 5000 });
+
+  // WAL keeps readers from blocking the writer. It is a property of the file,
+  // so once any process has switched it, it stays switched; a fresh install
+  // whose build workers race for the switch loses nothing by one of them
+  // failing — the file works in either journal mode.
+  void client.execute('PRAGMA journal_mode = WAL').catch(() => undefined);
+  void client.execute('PRAGMA synchronous = NORMAL').catch(() => undefined);
+  void client.execute('PRAGMA foreign_keys = ON').catch(() => undefined);
+  return client;
 }
 
-export const sqlite: Database.Database = globalThis.__tasqSqlite ?? openDatabase();
-if (process.env.NODE_ENV !== 'production') globalThis.__tasqSqlite = sqlite;
+export const client: Client = globalThis.__tasqClient ?? openClient();
+if (process.env.NODE_ENV !== 'production') globalThis.__tasqClient = client;
 
-export const db = drizzle(sqlite, { schema });
+export const db = drizzle(client, { schema });
 export { schema };

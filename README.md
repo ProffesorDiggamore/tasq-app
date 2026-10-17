@@ -5,10 +5,11 @@ in people's pockets. Packaged so it can be deployed
 for another business as-is: one Mac, reachable from the shop floor and from
 phones off-site, costs nothing to operate.
 
-- **Stack:** Next.js 16 (App Router) · TypeScript · SQLite via better-sqlite3 ·
+- **Stack:** Next.js 16 (App Router) · TypeScript · SQLite via libsql ·
   Drizzle ORM · iron-session · Motion · Tailwind CSS v4
 - **Port:** 4744
-- **Data:** a single file at `data/tasq.db` (WAL mode)
+- **Data:** on the shop Mac, a single file at `data/tasq.db` (WAL mode);
+  hosted on Netlify, a Turso database (see *Hosting on Netlify*)
 - **Time zone:** everything is stored as Unix ms UTC and displayed in the
   shop's zone (`America/Boise` by default, configurable per deployment)
 
@@ -27,17 +28,26 @@ the app — no people, no name — so a fresh install is activated like this:
    person sets their own PIN the first time they tap their name.
 
 The seller never needs database access per customer: the code *is* the
-handoff. If a board should be pre-labelled before handoff, set `TASQ_ORG_NAME`
-in `.env.local`; the owner's choice during setup overrides it.
+handoff. Every board is called Tasq — there is no per-board name to set or
+rename, so an install on one phone and an install on another never disagree
+about what the board is called.
 
 There is deliberately no signup page beyond this: `/setup` refuses to run once
 anyone is on the board, and unused codes are single-use and stored hashed.
 
 ## Running it
 
-Double-click **`start.command`** in Finder. It installs, builds, starts the
-board on port 4744, and opens a browser at it. Leave the window open — the
-recurrence scheduler and the overdue nudges only run while the server does.
+Double-click **`Tasq.app`** in Finder. On the first run it hands off to the
+installer window; after that it opens an already-running board immediately.
+**`start.command`** is the readable fallback: it installs, builds, starts the
+board on port 4744, and opens a browser at it. Leave the installer window open
+unless the board was installed as the background service — the recurrence
+scheduler and overdue nudges run with the server.
+
+If macOS says it cannot verify Tasq after a download, Control-click
+**`start.command`**, choose **Open**, and approve it once. The launcher clears
+the download quarantine from the rest of the Tasq folder after that approved
+first run. A paid Apple Developer certificate is not required.
 
 From a terminal:
 
@@ -102,12 +112,12 @@ an admin adds people in Settings, by name only.
 
 ## The task status machine
 
-Only admins create tasks — posting work, and especially posting a cash
-reward, is an owner decision — but any task can be for anyone, including
-themselves and the open pool. A task can carry a **cash reward** (whole
-dollars, set by the admin): whoever finishes it pockets it, and it shows as a
-green tag on the card. `lib/task-machine.ts` holds every transition; `app/actions.ts` only
-resolves who is asking and revalidates.
+Anyone on the board can post work to the shared board or to a tab they belong
+to, and a tasq can be for anyone, including its creator and the open pool. Cash
+rewards remain an admin-only decision: if a crew member posts work, no reward
+can be attached. Whoever finishes a rewarded tasq pockets it, and it shows as a
+green tag on the card. `lib/task-machine.ts` holds every transition;
+`app/actions.ts` only resolves who is asking and revalidates.
 
 - **Assigned on creation** → `pending`. That person **Accepts** (→ `accepted`)
   or **Declines**, which clears the assignee, records the reason, and drops the
@@ -292,15 +302,18 @@ safe: it never regenerates keys that already exist and never touches the
 database.
 
 ```bash
-update.command       # update: double-click this — backs up, installs, restarts
+Check for Updates.command # downloads the newest published release, then updates
+update.command       # offline update: backs up, installs, restarts
 setup/deploy.sh      # developer update: pull, build, verify, restart
 setup/uninstall.sh   # remove the jobs; leaves the database and backups alone
 ```
 
-For the shop owner, updating is one double-click: put the `Tasq-update` folder
-or zip Landon sends on the Desktop or in Downloads, double-click
-`update.command` in the app folder, and wait. It backs up first, and if
-anything fails it puts the old version back untouched.
+For the shop owner, updating is one double-click on **`Check for
+Updates.command`**. It downloads the newest published GitHub release for free,
+then hands it to the staged updater. If the Mac is offline, put the
+`Tasq-update` folder or zip Landon sends on the Desktop or in Downloads and
+double-click `update.command`. Both paths back up first; if anything fails they
+put the old version back untouched.
 
 `setup/README.md` has the full manual walkthrough behind that, plus
 troubleshooting. Public HTTPS — which Web Push and Add-to-Home-Screen both
@@ -312,6 +325,38 @@ require — comes from one of two free tunnels, each with a step-by-step guide:
 - **`setup/TAILSCALE.md`** — Tailscale Funnel. No domain, but each device's key
   expires after ~180 days unless you disable that in the admin console.
   `bootstrap.sh --tunnel=tailscale`.
+
+## Hosting on Netlify
+
+The alternative to a shop Mac: Netlify runs the board, Turso holds the data,
+both on free plans. Netlify keeps no disk between requests, so the one code
+path reads `TURSO_DATABASE_URL` and talks to Turso when it is set, and opens
+`data/tasq.db` when it is not — the Mac install is unchanged.
+
+1. Create a database on turso.tech; copy its URL and a database token.
+2. In Netlify, import the GitHub repo, then set **TURSO_DATABASE_URL**,
+   **TURSO_AUTH_TOKEN** and **SESSION_SECRET** (32+ random characters) under
+   Site configuration → Environment variables. `netlify.toml` does the rest.
+3. Moving an existing board? Before the first deploy, with the server stopped:
+   `TURSO_DATABASE_URL=… TURSO_AUTH_TOKEN=… npm run copy-to-turso`. It copies
+   everything except push subscriptions (they belong to the old address) and
+   switches the device whitelist off, and refuses to overwrite a Turso board
+   that already has people on it.
+4. Deploy. A fresh board prints its setup code in the **deploy log**
+   (`npm run netlify:prepare` runs before the build: migrations, then the code).
+   Each deploy prints a new one until the board is set up.
+
+What changes when hosted:
+
+- **The clock** is `netlify/functions/tick.mts`, a scheduled function that
+  posts to `/api/cron/tick` every five minutes (authenticated with a token
+  derived from `SESSION_SECRET`). A repeating tasq set for 7:00 lands by 7:05.
+  Scheduled functions only run on the published production deploy.
+- **Refresh** drops from 30s to 60s (`NEXT_PUBLIC_TASQ_POLL_SECONDS` in
+  `netlify.toml`). The free plan has a hard monthly allowance; when it runs
+  out Netlify takes the site offline until the next month rather than charging.
+- **Cookies** are marked Secure automatically (`next.config.ts`).
+- Push keys live in the database, so they move with it; HTTPS comes free.
 
 ## Notes on the two access paths
 

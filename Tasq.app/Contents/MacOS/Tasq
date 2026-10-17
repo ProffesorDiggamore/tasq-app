@@ -1,0 +1,23 @@
+#!/bin/bash
+# Finder-friendly front door. The real installer stays in start.command so the
+# app bundle and the documented fallback always run exactly the same path.
+
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+START="$ROOT/start.command"
+PORT="${TASQ_PORT:-4744}"
+OPEN_BIN="${TASQ_OPEN_BIN:-/usr/bin/open}"
+
+if [ ! -x "$START" ]; then
+  /usr/bin/osascript -e 'display alert "Tasq could not start" message "start.command is missing from the Tasq folder. Put Tasq.app back beside the rest of the Tasq files." as critical'
+  exit 1
+fi
+
+# An installed/background board should feel like an app: open it immediately
+# instead of rebuilding it or exposing a Terminal window on every launch.
+if /usr/bin/curl -fsS --max-time 2 "http://localhost:$PORT/login" 2>/dev/null \
+  | /usr/bin/grep -qi '<title>[^<]*Tasq'; then
+  "$OPEN_BIN" "http://localhost:$PORT"
+  exit 0
+fi
+
+"$OPEN_BIN" "$START"

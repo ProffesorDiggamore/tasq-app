@@ -32,16 +32,16 @@ function section(name: string): void {
   console.log(`\n${name}`);
 }
 
-initDatabase();
-seedTestUsers();
+await initDatabase();
+await seedTestUsers();
 
-const all = db.select().from(users).all();
+const all = await db.select().from(users).all();
 const chris = all.find((u) => u.name === 'Chris')!; // admin
 const tony = all.find((u) => u.name === 'Tony')!; // crew
 const shelly = all.find((u) => u.name === 'Shelly')!; // crew
 
-function post(title: string, rewardCents: number | null, assignedTo: number | null) {
-  const r = machine.createTask(chris, {
+async function post(title: string, rewardCents: number | null, assignedTo: number | null) {
+  const r = await machine.createTask(chris, {
     title,
     notes: '',
     assignedTo,
@@ -54,7 +54,7 @@ function post(title: string, rewardCents: number | null, assignedTo: number | nu
 }
 
 section('Only an admin can attach money');
-const crewTask = machine.createTask(tony, {
+const crewTask = await machine.createTask(tony, {
   title: 'Crew bounty attempt',
   notes: '',
   assignedTo: null,
@@ -67,10 +67,10 @@ check(
   'but it carries no bounty',
   crewTask.ok &&
     crewTask.taskId !== undefined &&
-    db.select().from(tasks).where(eq(tasks.id, crewTask.taskId)).get()!.rewardCents === null,
+    (await db.select().from(tasks).where(eq(tasks.id, crewTask.taskId)).get())!.rewardCents === null,
 );
 
-const crewRule = recurrences.createRecurrence(tony, {
+const crewRule = await recurrences.createRecurrence(tony, {
   title: 'Crew repeating bounty attempt',
   notes: '',
   defaultAssignee: null,
@@ -84,61 +84,61 @@ const crewRule = recurrences.createRecurrence(tony, {
 check('a non-admin may make a repeating rule', crewRule.ok);
 check(
   'and that rule carries no bounty either',
-  crewRule.ok && recurrences.listRecurrences().every((r) => r.rewardCents === null),
+  crewRule.ok && (await recurrences.listRecurrences()).every((r) => r.rewardCents === null),
 );
 
 section('Owed is derived from finished work');
-check('nobody is owed anything on a fresh board', payouts.outstandingPayouts().length === 0);
+check('nobody is owed anything on a fresh board', (await payouts.outstandingPayouts()).length === 0);
 
-const paidJob = post('Load the trailer', 2500, tony.id);
-machine.acceptTask(tony, paidJob);
-check('an unfinished bounty is not owed yet', payouts.outstandingPayouts().length === 0);
+const paidJob = await post('Load the trailer', 2500, tony.id);
+await machine.acceptTask(tony, paidJob);
+check('an unfinished bounty is not owed yet', (await payouts.outstandingPayouts()).length === 0);
 
-machine.completeTask(tony, paidJob);
-const owed1 = payouts.outstandingPayouts();
+await machine.completeTask(tony, paidJob);
+const owed1 = await payouts.outstandingPayouts();
 check('finishing it puts the person on the list', owed1.length === 1 && owed1[0].userId === tony.id);
 check('for the right amount', owed1[0]?.cents === 2500, `got ${owed1[0]?.cents}`);
 check('and names the job behind it', owed1[0]?.tasks[0]?.title === 'Load the trailer');
 
-const freeJob = post('Sweep up', null, shelly.id);
-machine.acceptTask(shelly, freeJob);
-machine.completeTask(shelly, freeJob);
+const freeJob = await post('Sweep up', null, shelly.id);
+await machine.acceptTask(shelly, freeJob);
+await machine.completeTask(shelly, freeJob);
 check(
   'someone who finished unpaid work never appears',
-  payouts.outstandingPayouts().every((p) => p.userId !== shelly.id),
+  (await payouts.outstandingPayouts()).every((p) => p.userId !== shelly.id),
 );
 
-const second = post('Wash the loaner', 1500, tony.id);
-machine.acceptTask(tony, second);
-machine.completeTask(tony, second);
-check('two jobs add up on one row', payouts.outstandingPayouts()[0].cents === 4000);
-check('and stay one row', payouts.outstandingPayouts().length === 1);
-check('the total matches the rows', payouts.totalOwedCents() === 4000);
+const second = await post('Wash the loaner', 1500, tony.id);
+await machine.acceptTask(tony, second);
+await machine.completeTask(tony, second);
+check('two jobs add up on one row', (await payouts.outstandingPayouts())[0].cents === 4000);
+check('and stay one row', (await payouts.outstandingPayouts()).length === 1);
+check('the total matches the rows', await payouts.totalOwedCents() === 4000);
 
 section('Whoever does the work is owed, not whoever it was assigned to');
-const handedOff = post('Grease the hoist', 3000, shelly.id);
-machine.completeTask(tony, handedOff);
-const owedNow = payouts.outstandingPayouts();
+const handedOff = await post('Grease the hoist', 3000, shelly.id);
+await machine.completeTask(tony, handedOff);
+const owedNow = await payouts.outstandingPayouts();
 check('the finisher is owed', owedNow.find((p) => p.userId === tony.id)?.cents === 7000);
 check('the assignee is not', !owedNow.some((p) => p.userId === shelly.id));
 
 section('Settling');
-const settled = payouts.markPersonPaid(chris, tony.id);
+const settled = await payouts.markPersonPaid(chris, tony.id);
 check('paying clears the whole balance in one go', settled.ok && settled.cents === 7000);
-check('they leave the list entirely', payouts.outstandingPayouts().length === 0);
-check('paying again finds nothing', !payouts.markPersonPaid(chris, tony.id).ok);
+check('they leave the list entirely', (await payouts.outstandingPayouts()).length === 0);
+check('paying again finds nothing', !(await payouts.markPersonPaid(chris, tony.id)).ok);
 
-const later = post('Change the oil', 4000, tony.id);
-machine.completeTask(tony, later);
-check('new work after a payout starts a fresh balance', payouts.outstandingPayouts()[0].cents === 4000);
+const later = await post('Change the oil', 4000, tony.id);
+await machine.completeTask(tony, later);
+check('new work after a payout starts a fresh balance', (await payouts.outstandingPayouts())[0].cents === 4000);
 check(
   'and the already-settled jobs stay settled',
-  payouts.unpaidTasksFor(tony.id).every((t) => t.title === 'Change the oil'),
+  (await payouts.unpaidTasksFor(tony.id)).every((t) => t.title === 'Change the oil'),
 );
 
-check('one job can be settled on its own', payouts.markTaskPaid(chris, later).ok);
-check('settling it twice is refused', !payouts.markTaskPaid(chris, later).ok);
-check('and the board is square again', payouts.outstandingPayouts().length === 0);
+check('one job can be settled on its own', (await payouts.markTaskPaid(chris, later)).ok);
+check('settling it twice is refused', !(await payouts.markTaskPaid(chris, later)).ok);
+check('and the board is square again', (await payouts.outstandingPayouts()).length === 0);
 
 section('Money reads as money');
 check('whole dollars stay whole', payouts.formatCents(2500) === '$25');

@@ -13,7 +13,7 @@ export async function createSupplyRequestAction(input: {
   notes: string;
 }): Promise<ActionResult> {
   const me = await requireUser();
-  const { requestId: _id, notify, ...plain } = createSupplyRequest(me, input);
+  const { requestId: _id, notify, ...plain } = await createSupplyRequest(me, input);
   revalidatePath('/supplies');
   revalidatePath('/');
   if (notify) await dispatchAll(notify);
@@ -25,7 +25,7 @@ export async function advanceSupplyRequestAction(
   to: SupplyStatus,
 ): Promise<ActionResult> {
   const me = await requireUser();
-  const { notify, ...plain } = advanceSupplyRequest(me, requestId, to);
+  const { notify, ...plain } = await advanceSupplyRequest(me, requestId, to);
   revalidatePath('/supplies');
   revalidatePath('/');
   if (notify) await dispatchAll(notify);

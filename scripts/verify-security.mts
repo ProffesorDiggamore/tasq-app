@@ -15,7 +15,7 @@ const { initDatabase } = await import('../lib/db/migrate');
 const { seedTestUsers } = await import('./helpers/test-users.mts');
 const { db } = await import('../lib/db');
 const { users, pushSubscriptions } = await import('../lib/db/schema');
-const { upsertSubscription, removeSubscription } = await import('../lib/push-store');
+const { upsertSubscription, removeSubscription, ownsSubscription } = await import('../lib/push-store');
 const { rateLimit, penaltyState, recordPenalty } = await import('../lib/rate-limit');
 const { ERROR_REGISTRY } = await import('../lib/errors');
 const { mintRecoveryCode, redeemSetupCode, canRecover } = await import('../lib/setup');
@@ -30,23 +30,25 @@ const check = (label: string, cond: boolean, detail = ''): void => {
 };
 const section = (n: string) => console.log(`\n${n}`);
 
-initDatabase();
-seedTestUsers();
-const all = db.select().from(users).all();
+await initDatabase();
+await seedTestUsers();
+const all = await db.select().from(users).all();
 const chris = all.find((u) => u.name === 'Chris')!;
 const landon = all.find((u) => u.name === 'Landon')!;
 
 section('Push subscriptions are owned, not shared');
 const sub = { endpoint: 'https://push.example/dev1', p256dh: 'k1', auth: 'a1' };
-check('owner subscribes their device', upsertSubscription(chris.id, sub, 'UA').ok);
-check('another user cannot re-point that device', !upsertSubscription(landon.id, sub, 'UA').ok);
-check('refusal carries the ownership code', JSON.stringify(upsertSubscription(landon.id, sub, 'UA')) === JSON.stringify({ ok: false, code: 'TASQ-E0404' }));
-check('a different endpoint is fine for the second user', upsertSubscription(landon.id, { ...sub, endpoint: 'https://push.example/dev2' }, 'UA').ok);
-check('owner refreshes their own keys', upsertSubscription(chris.id, { ...sub, p256dh: 'k2' }, 'UA').ok);
-check('a stranger cannot delete the owner’s subscription', !removeSubscription(landon.id, sub.endpoint).ok);
-check('the row survived that attempt', db.select().from(pushSubscriptions).all().length === 2);
-check('the owner can delete their own device', removeSubscription(chris.id, sub.endpoint).ok);
-check('deleting again is a clean miss', !removeSubscription(chris.id, sub.endpoint).ok);
+check('owner subscribes their device', (await upsertSubscription(chris.id, sub, 'UA')).ok);
+check('another user cannot re-point that device', !(await upsertSubscription(landon.id, sub, 'UA')).ok);
+check('refusal carries the ownership code', JSON.stringify(await upsertSubscription(landon.id, sub, 'UA')) === JSON.stringify({ ok: false, code: 'TASQ-E0404' }));
+check('a different endpoint is fine for the second user', (await upsertSubscription(landon.id, { ...sub, endpoint: 'https://push.example/dev2' }, 'UA')).ok);
+check('owner refreshes their own keys', (await upsertSubscription(chris.id, { ...sub, p256dh: 'k2' }, 'UA')).ok);
+check('a stranger cannot delete the owner’s subscription', !(await removeSubscription(landon.id, sub.endpoint)).ok);
+check('the row survived that attempt', (await db.select().from(pushSubscriptions).all()).length === 2);
+check('a shared device reads as subscribed for its owner', await ownsSubscription(chris.id, sub.endpoint));
+check('and not for whoever signs in after them', !await ownsSubscription(landon.id, sub.endpoint));
+check('the owner can delete their own device', (await removeSubscription(chris.id, sub.endpoint)).ok);
+check('deleting again is a clean miss', !(await removeSubscription(chris.id, sub.endpoint)).ok);
 
 section('Rate limiting');
 const key = `verify:count:${Math.random()}`;
@@ -76,13 +78,13 @@ check('push ownership has its own code', 'TASQ-E0404' in ERROR_REGISTRY);
 check('every message is a real sentence', Object.values(ERROR_REGISTRY).every((m) => /[.!]/.test(m) && m.length > 10));
 
 section('Recovery codes are single-use');
-const code = mintRecoveryCode()!;
+const code = (await mintRecoveryCode())!;
 check('minted', typeof code === 'string' && code.length >= 8);
-const first = await redeemSetupCode(code, 'Shop', 'New Admin', '4321', '4321');
+const first = await redeemSetupCode(code, 'New Admin', '4321', '4321');
 check('first redemption succeeds', first.ok, JSON.stringify(first));
-const second = await redeemSetupCode(code, 'Shop', 'Other Admin', '8765', '8765');
+const second = await redeemSetupCode(code, 'Other Admin', '8765', '8765');
 check('replay is refused', !second.ok);
-check('and the replay created nobody', db.select().from(users).all().find((u) => u.name === 'Other Admin') === undefined);
+check('and the replay created nobody', (await db.select().from(users).all()).find((u) => u.name === 'Other Admin') === undefined);
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

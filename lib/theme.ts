@@ -35,11 +35,11 @@ export type AppearanceMode = keyof typeof APPEARANCES;
 const THEME_KEY = 'theme.accent';
 const APPEARANCE_KEY = 'theme.mode';
 
-export function getThemeKey(): ThemeKey {
+export async function getThemeKey(): Promise<ThemeKey> {
   // The database does not exist yet during a first production build, which
   // prerenders static pages before instrumentation can run migrations.
   try {
-    const stored = getSetting(THEME_KEY);
+    const stored = await getSetting(THEME_KEY);
     if (stored && stored in THEMES) return stored as ThemeKey;
   } catch {
     // Fall through to the default below.
@@ -47,16 +47,16 @@ export function getThemeKey(): ThemeKey {
   return 'blue';
 }
 
-export function setThemeKey(key: string): boolean {
+export async function setThemeKey(key: string): Promise<boolean> {
   if (!(key in THEMES)) return false;
-  setSetting(THEME_KEY, key);
+  await setSetting(THEME_KEY, key);
   return true;
 }
 
-export function getAppearance(): AppearanceMode {
+export async function getAppearance(): Promise<AppearanceMode> {
   // Same build-time caveat as getThemeKey: no database during prerender.
   try {
-    const stored = getSetting(APPEARANCE_KEY);
+    const stored = await getSetting(APPEARANCE_KEY);
     if (stored && stored in APPEARANCES) return stored as AppearanceMode;
   } catch {
     // Fall through to the default below.
@@ -64,14 +64,14 @@ export function getAppearance(): AppearanceMode {
   return 'system';
 }
 
-export function setAppearance(mode: string): boolean {
+export async function setAppearance(mode: string): Promise<boolean> {
   if (!(mode in APPEARANCES)) return false;
-  setSetting(APPEARANCE_KEY, mode);
+  await setSetting(APPEARANCE_KEY, mode);
   return true;
 }
 
 /** CSS custom properties to spread onto <body>, overriding globals.css. */
-export function themeStyle(): Record<string, string> {
-  const theme = THEMES[getThemeKey()];
+export async function themeStyle(): Promise<Record<string, string>> {
+  const theme = THEMES[await getThemeKey()];
   return { '--accent': theme.accent, '--accent-ink': theme.ink };
 }

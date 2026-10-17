@@ -54,5 +54,5 @@ CLAUDE.md
 
 # Local ops + planning notes, not part of the shipped app
 billing/
-BUILD-BRIEF.md
+docs/BUILD-BRIEF.md
 .claude-flow/

@@ -3,11 +3,20 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { appSettings } from '@/lib/db/schema';
 
-/** The name shown before the business picks its own during setup. */
-export const DEFAULT_ORG_NAME = 'Tasq Board';
+/**
+ * The product name, everywhere the UI says who this board belongs to: the
+ * header, the browser tab, the home-screen install, the footer.
+ *
+ * This used to be a per-board setting a shop could rename itself to. It is a
+ * constant now on purpose — a board calling itself "Gold Standard Detailing"
+ * on one phone and "Tasq" on another (manifest caches, an install made before
+ * the rename) is worse than no choice at all, and every support conversation
+ * starts with working out what the customer's board is even called.
+ */
+export const ORG_NAME = 'Tasq';
 
-export function getSetting(key: string): string | null {
-  const row = db
+export async function getSetting(key: string): Promise<string | null> {
+  const row = await db
     .select({ value: appSettings.value })
     .from(appSettings)
     .where(eq(appSettings.key, key))
@@ -15,8 +24,8 @@ export function getSetting(key: string): string | null {
   return row?.value ?? null;
 }
 
-export function setSetting(key: string, value: string): void {
-  db.insert(appSettings)
+export async function setSetting(key: string, value: string): Promise<void> {
+  await db.insert(appSettings)
     .values({ key, value, updatedAt: Date.now() })
     .onConflictDoUpdate({
       target: appSettings.key,
@@ -30,19 +39,19 @@ export function setSetting(key: string, value: string): void {
  * stored. Two server actions racing to generate a secret both run this; one
  * wins and both read back the winner, so secrets never flip-flop.
  */
-export function setSettingIfAbsent(key: string, value: string): string {
-  db.insert(appSettings)
+export async function setSettingIfAbsent(key: string, value: string): Promise<string> {
+  await db.insert(appSettings)
     .values({ key, value, updatedAt: Date.now() })
     .onConflictDoNothing()
     .run();
-  return getSetting(key) ?? value;
+  return await getSetting(key) ?? value;
 }
 
 /**
- * The business name, wherever the UI says who this board belongs to. A name
- * chosen during setup or changed in Settings wins; TASQ_ORG_NAME stands in
- * before that — useful when shipping a box pre-labelled for a customer.
+ * Kept as a function rather than exporting the constant at every call site, so
+ * the many `getOrgName()` calls across the app did not all have to change and
+ * a future per-board name has one place to come back to.
  */
 export function getOrgName(): string {
-  return getSetting('org.name') ?? process.env.TASQ_ORG_NAME?.trim() ?? DEFAULT_ORG_NAME;
+  return ORG_NAME;
 }

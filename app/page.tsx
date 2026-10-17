@@ -29,12 +29,12 @@ export default async function BoardPage({
   // on Group 1 has to open Group 1, or the sheet would open onto an empty board.
   const asked = g && /^\d+$/.test(g) ? Number(g) : null;
   const wanted =
-    asked ?? (initialTaskId === null ? null : (getBoardTask(initialTaskId)?.groupId ?? null));
-  const groupId = wanted !== null && canUseGroup(user, wanted) ? wanted : null;
+    asked ?? (initialTaskId === null ? null : ((await getBoardTask(initialTaskId))?.groupId ?? null));
+  const groupId = wanted !== null && await canUseGroup(user, wanted) ? wanted : null;
 
   const now = Date.now();
-  const board = loadBoard(user.id, now, groupId);
-  const tabs = tabsForUser(user);
+  const board = await loadBoard(user.id, now, groupId);
+  const tabs = await tabsForUser(user);
 
   // Auto-start walkthrough for users who haven't completed it yet.
   const shouldAutostartTour = tour === '1' || !user.hasToured;
@@ -45,12 +45,12 @@ export default async function BoardPage({
         userId={user.id}
         userName={user.name}
         isAdmin={user.isAdmin}
-        title={groupId === null ? getOrgName() : (getGroup(groupId)?.name ?? getOrgName())}
+        title={groupId === null ? getOrgName() : ((await getGroup(groupId))?.name ?? getOrgName())}
       />
       <BoardTabs tabs={tabs} current={groupId} />
       <Board
         board={board}
-        people={listActiveUsers().map(toPersonSummary)}
+        people={(await listActiveUsers()).map(toPersonSummary)}
         viewer={{ id: user.id, name: user.name, isAdmin: user.isAdmin }}
         serverNow={now}
         initialTaskId={initialTaskId}

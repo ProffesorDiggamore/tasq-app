@@ -27,35 +27,35 @@ function refresh(): void {
 
 export async function approveDeviceAction(deviceId: number): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const result = setDeviceStatus(admin, deviceId, 'approved');
+  const result = await setDeviceStatus(admin, deviceId, 'approved');
   if (result.ok) refresh();
   return result;
 }
 
 export async function revokeDeviceAction(deviceId: number): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const result = setDeviceStatus(admin, deviceId, 'pending');
+  const result = await setDeviceStatus(admin, deviceId, 'pending');
   if (result.ok) refresh();
   return result;
 }
 
 export async function blockDeviceAction(deviceId: number): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const result = setDeviceStatus(admin, deviceId, 'blocked');
+  const result = await setDeviceStatus(admin, deviceId, 'blocked');
   if (result.ok) refresh();
   return result;
 }
 
 export async function forgetDeviceAction(deviceId: number): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const result = forgetDevice(admin, deviceId);
+  const result = await forgetDevice(admin, deviceId);
   if (result.ok) refresh();
   return result;
 }
 
 export async function renameDeviceAction(deviceId: number, label: string): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const result = renameDevice(admin, deviceId, label);
+  const result = await renameDevice(admin, deviceId, label);
   if (result.ok) refresh();
   return result;
 }
@@ -68,7 +68,7 @@ export async function setWhitelistEnabledAction(enabled: boolean): Promise<Actio
   const admin = await requireAdmin();
   const token = (await cookies()).get(DEVICE_COOKIE)?.value ?? null;
   const userAgent = (await headers()).get('user-agent');
-  const result = setWhitelistEnabled(admin, enabled, token, userAgent);
+  const result = await setWhitelistEnabled(admin, enabled, token, userAgent);
   if (result.ok) refresh();
   return result;
 }

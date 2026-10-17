@@ -78,9 +78,9 @@ export interface SpawnReport {
  * Missed *days* are deliberately not backfilled — nobody wants Monday's greasing
  * to appear four times because the machine was off all week.
  */
-export function spawnDueRecurrences(now: number = Date.now()): SpawnReport {
+export async function spawnDueRecurrences(now: number = Date.now()): Promise<SpawnReport> {
   const today = localDateString(now);
-  const candidates = db
+  const candidates = await db
     .select()
     .from(recurrences)
     .where(
@@ -98,7 +98,7 @@ export function spawnDueRecurrences(now: number = Date.now()): SpawnReport {
     if (!isDueOn(rec, now)) continue;
     if (!spawnTimeReached(rec, now)) continue;
 
-    const claimed = db
+    const claimed = await db
       .update(recurrences)
       .set({ lastSpawnedOn: today })
       .where(
@@ -109,13 +109,13 @@ export function spawnDueRecurrences(now: number = Date.now()): SpawnReport {
       )
       .run();
     // Someone else claimed today for this rule between the select and here.
-    if (claimed.changes === 0) continue;
+    if (claimed.rowsAffected === 0) continue;
 
     // An assignee who has since been archived falls back to the open pool
     // rather than spawning a task nobody can see.
     let assignedTo: number | null = null;
     if (rec.defaultAssignee !== null) {
-      const person = db
+      const person = await db
         .select()
         .from(users)
         .where(and(eq(users.id, rec.defaultAssignee), isNull(users.archivedAt)))
@@ -123,7 +123,7 @@ export function spawnDueRecurrences(now: number = Date.now()): SpawnReport {
       assignedTo = person ? person.id : null;
     }
 
-    const inserted = db
+    const inserted = await db
       .insert(tasks)
       .values({
         title: rec.title,
@@ -141,7 +141,7 @@ export function spawnDueRecurrences(now: number = Date.now()): SpawnReport {
       .returning({ id: tasks.id })
       .get();
 
-    logActivity(
+    await logActivity(
       {
         // No actor: the scheduler did this, not a person.
         actorId: null,
@@ -150,8 +150,8 @@ export function spawnDueRecurrences(now: number = Date.now()): SpawnReport {
         subjectId: inserted.id,
         summary:
           assignedTo === null
-            ? `Repeating task "${rec.title}" went up for grabs`
-            : `Repeating task "${rec.title}" went to ${nameOf(assignedTo)}`,
+            ? `Repeating tasq "${rec.title}" went up unclaimed`
+            : `Repeating tasq "${rec.title}" went to ${await nameOf(assignedTo)}`,
       },
       now,
     );
@@ -163,9 +163,9 @@ export function spawnDueRecurrences(now: number = Date.now()): SpawnReport {
   return report;
 }
 
-function nameOf(userId: number): string {
+async function nameOf(userId: number): Promise<string> {
   return (
-    db.select({ name: users.name }).from(users).where(eq(users.id, userId)).get()?.name ?? 'Someone'
+    (await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).get())?.name ?? 'Someone'
   );
 }
 
@@ -188,19 +188,19 @@ export function validateRecurrence(input: RecurrenceInput): string | null {
   return null;
 }
 
-export function createRecurrence(
+export async function createRecurrence(
   actor: User,
   input: RecurrenceInput,
   now: number = Date.now(),
-): ActionResult & { recurrenceId?: number } {
+): Promise<ActionResult & { recurrenceId?: number }> {
   const problem = validateRecurrence(input);
   if (problem) return fail(problem);
-  if (!canUseGroup(actor, input.groupId ?? null)) {
+  if (!await canUseGroup(actor, input.groupId ?? null)) {
     return fail('That tab is gone, or you are not on it.');
   }
 
   if (input.defaultAssignee !== null) {
-    const person = db
+    const person = await db
       .select()
       .from(users)
       .where(and(eq(users.id, input.defaultAssignee), isNull(users.archivedAt)))
@@ -208,7 +208,7 @@ export function createRecurrence(
     if (!person) return fail('That person is no longer on the board.');
   }
 
-  const created = db
+  const created = await db
     .insert(recurrences)
     .values({
       title: cleanText(input.title, TITLE_MAX),
@@ -231,7 +231,7 @@ export function createRecurrence(
     .returning({ id: recurrences.id })
     .get();
 
-  logActivity(
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'recurrence.created',
@@ -255,27 +255,27 @@ export function createRecurrence(
  * are somebody's work in progress, and silently retitling a task on the board
  * because a schedule changed would be worse than leaving it.
  */
-export function updateRecurrence(
+export async function updateRecurrence(
   actor: User,
   recurrenceId: number,
   input: RecurrenceInput,
   now: number = Date.now(),
-): ActionResult {
-  const existing = db
+): Promise<ActionResult> {
+  const existing = await db
     .select()
     .from(recurrences)
     .where(and(eq(recurrences.id, recurrenceId), isNull(recurrences.archivedAt)))
     .get();
-  if (!existing) return fail('That repeating task is gone.');
+  if (!existing) return fail('That repeating tasq is gone.');
 
   const problem = validateRecurrence(input);
   if (problem) return fail(problem);
-  if (!canUseGroup(actor, input.groupId ?? null)) {
+  if (!await canUseGroup(actor, input.groupId ?? null)) {
     return fail('That tab is gone, or you are not on it.');
   }
 
   if (input.defaultAssignee !== null) {
-    const person = db
+    const person = await db
       .select()
       .from(users)
       .where(and(eq(users.id, input.defaultAssignee), isNull(users.archivedAt)))
@@ -297,7 +297,7 @@ export function updateRecurrence(
     existing.spawnTime,
   );
 
-  db.update(recurrences)
+  await db.update(recurrences)
     .set({
       title,
       notes: cleanText(input.notes, NOTES_MAX) || null,
@@ -321,14 +321,14 @@ export function updateRecurrence(
     changes.push(
       input.defaultAssignee === null
         ? 'put it up for grabs'
-        : `gave it to ${nameOf(input.defaultAssignee)}`,
+        : `gave it to ${await nameOf(input.defaultAssignee)}`,
     );
   }
   if (input.isAsap !== existing.isAsap) {
     changes.push(input.isAsap ? 'marked it ASAP' : 'took ASAP off it');
   }
 
-  logActivity(
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'recurrence.updated',
@@ -336,8 +336,8 @@ export function updateRecurrence(
       subjectId: recurrenceId,
       summary:
         changes.length > 0
-          ? `${actor.name} edited the repeating task "${title}" — ${changes.join(', ')}`
-          : `${actor.name} edited the repeating task "${title}"`,
+          ? `${actor.name} edited the repeating tasq "${title}" — ${changes.join(', ')}`
+          : `${actor.name} edited the repeating tasq "${title}"`,
     },
     now,
   );
@@ -349,53 +349,53 @@ export function updateRecurrence(
  * Soft delete. The rule leaves the list and stops spawning; the tasks it already
  * created keep pointing at it, so nothing on the board or in History breaks.
  */
-export function deleteRecurrence(
+export async function deleteRecurrence(
   actor: User,
   recurrenceId: number,
   now: number = Date.now(),
-): ActionResult {
-  const existing = db
+): Promise<ActionResult> {
+  const existing = await db
     .select()
     .from(recurrences)
     .where(and(eq(recurrences.id, recurrenceId), isNull(recurrences.archivedAt)))
     .get();
-  if (!existing) return fail('That repeating task is gone.');
+  if (!existing) return fail('That repeating tasq is gone.');
 
-  db.update(recurrences)
+  await db.update(recurrences)
     .set({ archivedAt: now, active: false })
     .where(eq(recurrences.id, recurrenceId))
     .run();
 
-  logActivity(
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'recurrence.deleted',
       subjectType: 'recurrence',
       subjectId: recurrenceId,
-      summary: `${actor.name} deleted the repeating task "${existing.title}"`,
+      summary: `${actor.name} deleted the repeating tasq "${existing.title}"`,
     },
     now,
   );
   return ok;
 }
 
-export function setRecurrenceActive(
+export async function setRecurrenceActive(
   actor: User,
   recurrenceId: number,
   active: boolean,
   now: number = Date.now(),
-): ActionResult {
-  const rec = db.select().from(recurrences).where(eq(recurrences.id, recurrenceId)).get();
-  if (!rec) return fail('That repeating task is gone.');
+): Promise<ActionResult> {
+  const rec = await db.select().from(recurrences).where(eq(recurrences.id, recurrenceId)).get();
+  if (!rec) return fail('That repeating tasq is gone.');
 
-  db.update(recurrences).set({ active }).where(eq(recurrences.id, recurrenceId)).run();
-  logActivity(
+  await db.update(recurrences).set({ active }).where(eq(recurrences.id, recurrenceId)).run();
+  await logActivity(
     {
       actorId: actor.id,
       verb: active ? 'recurrence.resumed' : 'recurrence.paused',
       subjectType: 'recurrence',
       subjectId: recurrenceId,
-      summary: `${actor.name} ${active ? 'resumed' : 'paused'} the repeating task "${rec.title}"`,
+      summary: `${actor.name} ${active ? 'resumed' : 'paused'} the repeating tasq "${rec.title}"`,
     },
     now,
   );
@@ -444,8 +444,8 @@ function ordinal(n: number): string {
   }
 }
 
-export function listRecurrences(): RecurrenceSummary[] {
-  return db
+export async function listRecurrences(): Promise<RecurrenceSummary[]> {
+  return (await db
     .select({
       id: recurrences.id,
       title: recurrences.title,
@@ -468,7 +468,7 @@ export function listRecurrences(): RecurrenceSummary[] {
     .leftJoin(groups, eq(groups.id, recurrences.groupId))
     .where(isNull(recurrences.archivedAt))
     .orderBy(asc(recurrences.title))
-    .all()
+    .all())
     .map((r) => ({
       ...r,
       schedule: describeSchedule(r.pattern, parseWeekdays(r.weekdays), r.dayOfMonth, r.spawnTime),

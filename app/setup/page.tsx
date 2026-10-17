@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
  * board, the admin-recovery door. With neither, it just sends people along.
  */
 export default async function SetupPage() {
-  const mode = !hasActiveUsers() ? 'initial' : canRecover() ? 'recovery' : null;
+  const mode = !await hasActiveUsers() ? 'initial' : await canRecover() ? 'recovery' : null;
   if (mode === null) redirect('/login');
 
   return (

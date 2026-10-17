@@ -28,8 +28,11 @@ export type ActivityVerb =
   | 'task.updated'
   | 'user.pin_changed'
   | 'board.setup'
+  // Retired when the board name became a constant (lib/settings.ts). Kept in
+  // the union so history rows written before that still type-check.
   | 'board.renamed'
   | 'board.rethemed'
+  | 'board.notifications-changed'
   | 'user.recovered'
   | 'announcement.sent'
   | 'group.created'
@@ -65,8 +68,8 @@ export interface LogEntry {
 }
 
 /** Append-only. There is deliberately no update or delete counterpart. */
-export function logActivity(entry: LogEntry, now: number = Date.now()): void {
-  db.insert(activityLog)
+export async function logActivity(entry: LogEntry, now: number = Date.now()): Promise<void> {
+  await db.insert(activityLog)
     .values({
       actorId: entry.actorId,
       verb: entry.verb,

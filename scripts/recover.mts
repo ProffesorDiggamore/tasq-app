@@ -9,15 +9,15 @@
 import { initDatabase } from '../lib/db/migrate';
 import { hasActiveUsers, mintRecoveryCode } from '../lib/setup';
 
-initDatabase();
+await initDatabase();
 
-if (!hasActiveUsers()) {
+if (!await hasActiveUsers()) {
   console.log('This board has nobody on it yet — nothing to recover.');
   console.log('Use the first-time setup code instead: open /setup in a browser.');
   process.exit(1);
 }
 
-const code = mintRecoveryCode();
+const code = await mintRecoveryCode();
 if (code === null) {
   console.log('A recovery code has already been minted and not used yet.');
   console.log('Redeem that one first — it works once, at /setup.');

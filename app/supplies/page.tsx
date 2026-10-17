@@ -11,7 +11,7 @@ export default async function SuppliesPage() {
   if (!user) redirect('/login');
 
   // Everyone can ask; only an admin sees the whole queue.
-  const queue = user.isAdmin ? supplyQueue() : null;
+  const queue = user.isAdmin ? await supplyQueue() : null;
 
   return (
     <>
@@ -20,11 +20,11 @@ export default async function SuppliesPage() {
         userName={user.name}
         isAdmin={user.isAdmin}
         title="Supplies"
-        backHref="/"
+        backHref="/settings?s=work"
       />
       <SuppliesScreen
         queue={queue}
-        mine={myRequests(user.id)}
+        mine={await myRequests(user.id)}
         isAdmin={user.isAdmin}
         viewerId={user.id}
         serverNow={Date.now()}

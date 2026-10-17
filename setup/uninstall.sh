@@ -18,7 +18,7 @@ echo "${BOLD}Removing Tasq's background jobs${RESET}"
 echo "${DIM}Your database and backups stay put.${RESET}"
 echo
 
-for job in server backup tunnel autoupdate; do
+for job in server backup tunnel autoupdate tailscale; do
   LABEL="com.tasq.$job"
   if launchctl print "system/$LABEL" >/dev/null 2>&1; then
     sudo launchctl bootout "system/$LABEL" 2>/dev/null || true
@@ -29,6 +29,10 @@ for job in server backup tunnel autoupdate; do
     echo "  removed $LABEL.plist"
   fi
 done
+
+# The keepalive job lives outside the app folder so launchd can read it.
+sudo rm -f "/Library/Application Support/Tasq/tailscale-keepalive.sh"
+sudo rmdir "/Library/Application Support/Tasq" 2>/dev/null || true
 
 if command -v tailscale >/dev/null 2>&1 && tailscale funnel status 2>/dev/null | grep -q "$PORT"; then
   sudo tailscale funnel off >/dev/null 2>&1 || sudo tailscale funnel "$PORT" off >/dev/null 2>&1 || true

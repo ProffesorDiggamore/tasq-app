@@ -135,9 +135,9 @@ function median(values: number[]): number | null {
  * uses, applied to the totals so a crew member's "shop this week" never counts
  * work on a tab they cannot open.
  */
-function visibilityFilter(user: User) {
+async function visibilityFilter(user: User) {
   if (user.isAdmin) return undefined;
-  const mine = groupIdsForUser(user.id);
+  const mine = await groupIdsForUser(user.id);
   return mine.length === 0
     ? isNull(tasks.groupId)
     : or(isNull(tasks.groupId), inArray(tasks.groupId, mine));
@@ -155,14 +155,14 @@ interface DoneRow {
   recurrenceId: number | null;
 }
 
-export function analyticsFor(user: User, now: number = Date.now()): AnalyticsPayload {
+export async function analyticsFor(user: User, now: number = Date.now()): Promise<AnalyticsPayload> {
   const keys = dayKeys(now, WINDOW_DAYS);
   // One day of slack on the low side: the window's first local day starts
   // before its UTC midnight in a western zone.
   const windowStart = now - (WINDOW_DAYS + 1) * DAY_MS;
-  const scope = visibilityFilter(user);
+  const scope = await visibilityFilter(user);
 
-  const doneRows = db
+  const doneRows = (await db
     .select({
       completedAt: tasks.completedAt,
       completedBy: tasks.completedBy,
@@ -182,11 +182,11 @@ export function analyticsFor(user: User, now: number = Date.now()): AnalyticsPay
         scope,
       ),
     )
-    .all()
+    .all())
     .filter((r): r is DoneRow => r.completedAt !== null);
 
-  const personal = personalAnalytics(user, doneRows, keys, scope);
-  const shop = shopAnalytics(doneRows, keys, scope, now);
+  const personal = await personalAnalytics(user, doneRows, keys, scope);
+  const shop = await shopAnalytics(doneRows, keys, scope, now);
   // Their slice of the shop's month — the one comparison that motivates without
   // ranking anybody against anybody.
   personal.sharePct =
@@ -199,16 +199,16 @@ export function analyticsFor(user: User, now: number = Date.now()): AnalyticsPay
     now,
     personal,
     shop,
-    admin: user.isAdmin ? adminAnalytics(doneRows, keys, now) : undefined,
+    admin: user.isAdmin ? await adminAnalytics(doneRows, keys, now) : undefined,
   };
 }
 
-function personalAnalytics(
+async function personalAnalytics(
   user: User,
   doneRows: DoneRow[],
   keys: string[],
-  scope: ReturnType<typeof visibilityFilter>,
-): PersonalAnalytics {
+  scope: Awaited<ReturnType<typeof visibilityFilter>>,
+): Promise<PersonalAnalytics> {
   const mine = doneRows.filter((r) => r.completedBy === user.id);
 
   const counts = new Map<string, number>();
@@ -219,14 +219,14 @@ function personalAnalytics(
   const series = seriesFrom(keys, counts);
 
   const lifetime =
-    db
+    (await db
       .select({ n: sql<number>`count(*)` })
       .from(tasks)
       .where(and(eq(tasks.status, 'done'), eq(tasks.completedBy, user.id), scope))
-      .get()?.n ?? 0;
+      .get())?.n ?? 0;
 
   // Their own money: what has been settled, and what is still owed to them.
-  const money = db
+  const money = await db
     .select({
       paid: sql<number>`coalesce(sum(case when ${tasks.rewardPaidAt} is not null then ${tasks.rewardCents} else 0 end), 0)`,
       owed: sql<number>`coalesce(sum(case when ${tasks.rewardPaidAt} is null then ${tasks.rewardCents} else 0 end), 0)`,
@@ -267,12 +267,12 @@ function personalAnalytics(
   };
 }
 
-function shopAnalytics(
+async function shopAnalytics(
   doneRows: DoneRow[],
   keys: string[],
-  scope: ReturnType<typeof visibilityFilter>,
+  scope: Awaited<ReturnType<typeof visibilityFilter>>,
   now: number,
-): ShopAnalytics {
+): Promise<ShopAnalytics> {
   const counts = new Map<string, number>();
   for (const row of doneRows) {
     const key = localDateString(row.completedAt);
@@ -281,11 +281,11 @@ function shopAnalytics(
   const series = seriesFrom(keys, counts);
 
   const lifetime =
-    db
+    (await db
       .select({ n: sql<number>`count(*)` })
       .from(tasks)
       .where(and(eq(tasks.status, 'done'), scope))
-      .get()?.n ?? 0;
+      .get())?.n ?? 0;
 
   const cutoff30 = now - 30 * DAY_MS;
   const active = new Set(
@@ -294,7 +294,7 @@ function shopAnalytics(
       .map((r) => r.completedBy as number),
   );
 
-  const open = db
+  const open = await db
     .select({ dueAt: tasks.dueAt })
     .from(tasks)
     .where(and(inArray(tasks.status, ['pending', 'accepted']), scope))
@@ -315,17 +315,17 @@ function shopAnalytics(
  * Everything here is either somebody else's number or the shop's — which is
  * exactly the line the crew payload stops at.
  */
-function adminAnalytics(doneRows: DoneRow[], keys: string[], now: number): AdminAnalytics {
+async function adminAnalytics(doneRows: DoneRow[], keys: string[], now: number): Promise<AdminAnalytics> {
   const cutoff30 = now - 30 * DAY_MS;
 
-  const crewRows = db
+  const crewRows = await db
     .select({ id: users.id, name: users.name })
     .from(users)
     .where(isNull(users.archivedAt))
     .all();
 
   const earned = new Map<number, number>(
-    db
+    (await db
       .select({
         userId: tasks.completedBy,
         cents: sql<number>`coalesce(sum(${tasks.rewardCents}), 0)`,
@@ -339,7 +339,7 @@ function adminAnalytics(doneRows: DoneRow[], keys: string[], now: number): Admin
         ),
       )
       .groupBy(tasks.completedBy)
-      .all()
+      .all())
       .filter((r) => r.userId !== null)
       .map((r) => [r.userId as number, r.cents] as const),
   );
@@ -365,7 +365,7 @@ function adminAnalytics(doneRows: DoneRow[], keys: string[], now: number): Admin
     // silently drops whoever did nothing hides the thing an owner is looking for.
     .sort((a, b) => b.done30 - a.done30 || a.name.localeCompare(b.name));
 
-  const money = db
+  const money = await db
     .select({
       paidOut: sql<number>`coalesce(sum(case when ${tasks.rewardPaidAt} is not null then ${tasks.rewardCents} else 0 end), 0)`,
       outstanding: sql<number>`coalesce(sum(case when ${tasks.rewardPaidAt} is null then ${tasks.rewardCents} else 0 end), 0)`,
@@ -382,7 +382,7 @@ function adminAnalytics(doneRows: DoneRow[], keys: string[], now: number): Admin
     .get();
 
   const owedPeople = new Set(
-    db
+    (await db
       .select({ userId: tasks.completedBy })
       .from(tasks)
       .where(
@@ -394,11 +394,11 @@ function adminAnalytics(doneRows: DoneRow[], keys: string[], now: number): Admin
           isNull(tasks.rewardPaidAt),
         ),
       )
-      .all()
+      .all())
       .map((r) => r.userId),
   ).size;
 
-  const posted30 = db
+  const posted30 = await db
     .select({ rewardCents: tasks.rewardCents })
     .from(tasks)
     .where(and(gte(tasks.createdAt, cutoff30), isNotNull(tasks.rewardCents), gt(tasks.rewardCents, 0)))
@@ -413,7 +413,7 @@ function adminAnalytics(doneRows: DoneRow[], keys: string[], now: number): Admin
 
   // How reliably the repeating rules actually get done: every instance the
   // scheduler spawned in the window, against the ones that were finished.
-  const spawned30 = db
+  const spawned30 = await db
     .select({ status: tasks.status })
     .from(tasks)
     .where(and(isNotNull(tasks.recurrenceId), gte(tasks.createdAt, cutoff30)))
@@ -421,14 +421,14 @@ function adminAnalytics(doneRows: DoneRow[], keys: string[], now: number): Admin
   const spawnedDone = spawned30.filter((t) => t.status === 'done').length;
 
   const declined30 =
-    db
+    (await db
       .select({ n: sql<number>`count(*)` })
       .from(tasks)
       .where(and(eq(tasks.status, 'declined'), gte(tasks.updatedAt, cutoff30)))
-      .get()?.n ?? 0;
+      .get())?.n ?? 0;
 
-  const supplyRows = db.select({ status: supplyRequests.status }).from(supplyRequests).all();
-  const deviceRows = db.select({ status: devices.status }).from(devices).all();
+  const supplyRows = await db.select({ status: supplyRequests.status }).from(supplyRequests).all();
+  const deviceRows = await db.select({ status: devices.status }).from(devices).all();
 
   return {
     crew,

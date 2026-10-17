@@ -10,7 +10,7 @@ import { TaskSheet } from '@/components/board/TaskSheet';
 import { Toast, type ToastMessage } from '@/components/board/Toast';
 import { InstallSheet } from '@/components/pwa/InstallSheet';
 import { NotificationPrompt } from '@/components/pwa/NotificationPrompt';
-import type { CardAction } from '@/components/board/task-display';
+import { myDaySections, type CardAction } from '@/components/board/task-display';
 import { SPRING_ENTER } from '@/lib/motion';
 import {
   acceptTaskAction,
@@ -30,8 +30,12 @@ import type {
 import type { PersonSummary } from '@/lib/auth/results';
 import { haptic } from '@/lib/haptics';
 
-/** How often a board left open on the shop wall pulls fresh state. */
-const POLL_MS = 30_000;
+/**
+ * How often a board left open on the shop wall pulls fresh state. 30s on the
+ * shop Mac, where it costs nothing; netlify.toml raises it to 60s, because on
+ * the free plan every refresh spends from a monthly allowance.
+ */
+const POLL_MS = (Number(process.env.NEXT_PUBLIC_TASQ_POLL_SECONDS) || 30) * 1000;
 
 export interface Viewer {
   id: number;
@@ -121,7 +125,7 @@ export function Board({
             say(`${result.by} just grabbed this.`, 'error');
             break;
           case 'gone':
-            say('That task is no longer on the board.', 'error');
+            say('That tasq is no longer on the board.', 'error');
             break;
           default:
             say(result.message, 'error');
@@ -188,6 +192,9 @@ export function Board({
     () => [...board.asap, ...board.mine, ...board.pool, ...board.recurring, ...board.done],
     [board],
   );
+  const day = useMemo(() => myDaySections(board), [board]);
+  const firstOpenId =
+    day.mine[0]?.id ?? day.urgent[0]?.id ?? day.available[0]?.id ?? day.teamToday[0]?.id;
   const openTask = openTaskId === null ? null : (allTasks.find((t) => t.id === openTaskId) ?? null);
 
   // The sheet is open, so its task disappearing means someone else acted on it.
@@ -209,75 +216,77 @@ export function Board({
         className="mx-auto w-full max-w-5xl pb-32"
         style={{ paddingInline: 'var(--gutter)' }}
       >
-        {/* ASAP, then the open pool, then what is yours: urgency first, then the
-            work anyone can take, then the work already spoken for. The three
-            are wrapped so the walkthrough can spotlight them as one thing —
-            they are one idea, and pointing at them one at a time said less. */}
+        <MyDayHeader
+          name={viewer.name}
+          mine={day.mine.length}
+          urgent={board.asapCount}
+          available={day.available.length}
+        />
+
+        {/* The source queries overlap by design. My Day gives each open task
+            one home so urgency stays visible without making the same card take
+            over two or three rails. The walkthrough still spotlights this as
+            one idea: what is yours, what is urgent, and what can be claimed. */}
         <div data-tour="rows">
           <BoardRow
-            title="ASAP"
-            accent="asap"
-            badge={board.asapCount}
-            count={board.asap.length}
-            emptyMessage="Nothing urgent right now."
-            anchor="row-asap"
+            title="For you"
+            badge={board.awaitingYou}
+            count={day.mine.length}
+            emptyMessage="Nothing is waiting on you."
           >
             <AnimatePresence initial={false} mode="popLayout">
-              {board.asap.map((task, i) => (
-                <StaggeredCard key={task.id} index={i} anchor={i === 0 ? 'card' : undefined}>
-                  <TaskCard
-                    task={task}
-                    emphasis
-                    busy={busyTaskId === task.id}
-                    {...cardProps}
-                  />
-                </StaggeredCard>
+              {day.mine.map((task) => (
+                <RowCard key={task.id} anchor={task.id === firstOpenId ? 'card' : undefined}>
+                  <TaskCard task={task} busy={busyTaskId === task.id} {...cardProps} />
+                </RowCard>
               ))}
             </AnimatePresence>
           </BoardRow>
 
+          {day.urgent.length > 0 ? (
+            <BoardRow
+              title="Urgent on this board"
+              accent="asap"
+              count={day.urgent.length}
+              anchor="row-asap"
+            >
+              <AnimatePresence initial={false} mode="popLayout">
+                {day.urgent.map((task) => (
+                  <RowCard key={task.id} anchor={task.id === firstOpenId ? 'card' : undefined}>
+                    <TaskCard task={task} busy={busyTaskId === task.id} {...cardProps} />
+                  </RowCard>
+                ))}
+              </AnimatePresence>
+            </BoardRow>
+          ) : null}
+
           <BoardRow
-            title="Up for grabs"
-            count={board.pool.length}
-            emptyMessage="The pool is empty."
+            title="Available"
+            count={day.available.length}
+            emptyMessage="There is nothing open to claim."
             anchor="row-grabs"
           >
             <AnimatePresence initial={false} mode="popLayout">
-              {board.pool.map((task, i) => (
-                <RowCard key={task.id} anchor={i === 0 ? 'card' : undefined}>
+              {day.available.map((task) => (
+                <RowCard key={task.id} anchor={task.id === firstOpenId ? 'card' : undefined}>
                   <TaskCard task={task} busy={busyTaskId === task.id} {...cardProps} />
                 </RowCard>
               ))}
             </AnimatePresence>
           </BoardRow>
 
-          <BoardRow
-            title="Your tasks"
-            badge={board.awaitingYou}
-            count={board.mine.length}
-            emptyMessage="Nothing assigned to you."
-          >
-            <AnimatePresence initial={false} mode="popLayout">
-              {board.mine.map((task, i) => (
-                <RowCard key={task.id} anchor={i === 0 ? 'card' : undefined}>
-                  <TaskCard task={task} busy={busyTaskId === task.id} {...cardProps} />
-                </RowCard>
-              ))}
-            </AnimatePresence>
-          </BoardRow>
+          {day.teamToday.length > 0 ? (
+            <BoardRow title="Team today" count={day.teamToday.length}>
+              <AnimatePresence initial={false} mode="popLayout">
+                {day.teamToday.map((task) => (
+                  <RowCard key={task.id} anchor={task.id === firstOpenId ? 'card' : undefined}>
+                    <TaskCard task={task} busy={busyTaskId === task.id} {...cardProps} />
+                  </RowCard>
+                ))}
+              </AnimatePresence>
+            </BoardRow>
+          ) : null}
         </div>
-
-        {board.recurring.length > 0 ? (
-          <BoardRow title="Today's recurring" count={board.recurring.length}>
-            <AnimatePresence initial={false} mode="popLayout">
-              {board.recurring.map((task, i) => (
-                <RowCard key={task.id} anchor={i === 0 ? 'card' : undefined}>
-                  <TaskCard task={task} busy={busyTaskId === task.id} {...cardProps} />
-                </RowCard>
-              ))}
-            </AnimatePresence>
-          </BoardRow>
-        ) : null}
 
         {board.done.length > 0 ? (
           <BoardRow
@@ -316,7 +325,7 @@ export function Board({
           }}
         >
           <PlusIcon />
-          New task
+          New tasq
         </PressableLink>
       </div>
 
@@ -342,36 +351,7 @@ export function Board({
   );
 }
 
-/** Cards slide in with a tiny per-card delay — a board that loads in one
- *  motion reads as alive; a wall of simultaneous pop-ins reads as noise.
- *  `layout="position"` lets the survivors glide to their new spot when a
- *  neighbour is claimed or completed, instead of snapping. */
-function StaggeredCard({
-  index,
-  anchor,
-  children,
-}: {
-  index: number;
-  anchor?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <motion.div
-      layout="position"
-      data-tour={anchor}
-      initial={{ opacity: 0, y: 14, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.97 }}
-      transition={{ ...SPRING_ENTER, delay: Math.min(index * 0.045, 0.35) }}
-      className="shrink-0"
-    >
-      {children}
-    </motion.div>
-  );
-}
-
-/** A plain card wrapper for the non-ASAP rows: no entry stagger, but the same
- *  spring-driven enter/exit and `layout` glide when the row reorders. */
+/** Cards keep the same spring-driven enter/exit and glide when a row reorders. */
 function RowCard({
   anchor,
   children,
@@ -392,6 +372,73 @@ function RowCard({
     >
       {children}
     </motion.div>
+  );
+}
+
+function MyDayHeader({
+  name,
+  mine,
+  urgent,
+  available,
+}: {
+  name: string;
+  mine: number;
+  urgent: number;
+  available: number;
+}) {
+  const firstName = name.trim().split(/\s+/)[0] || name;
+  const clear = mine === 0 && urgent === 0 && available === 0;
+
+  return (
+    <section className="pt-4" aria-labelledby="my-day-title">
+      <p className="type-label text-[var(--text-tertiary)]">My day</p>
+      <div className="mt-1.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 id="my-day-title" className="type-display">
+            {clear ? `You’re clear, ${firstName}.` : `Here’s today, ${firstName}.`}
+          </h2>
+          <p className="type-callout mt-1 text-[var(--text-secondary)]">
+            {clear
+              ? 'Nothing needs your attention on this tab.'
+              : 'Your work comes first. Urgent and claimable work stay close without taking over.'}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2" aria-label="Today’s task summary">
+          <SummaryPill value={mine} label="for you" />
+          {urgent > 0 ? <SummaryPill value={urgent} label="urgent" tone="urgent" /> : null}
+          <SummaryPill value={available} label="available" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SummaryPill({
+  value,
+  label,
+  tone = 'default',
+}: {
+  value: number;
+  label: string;
+  tone?: 'default' | 'urgent';
+}) {
+  return (
+    <span
+      className="type-caption tabular rounded-[var(--radius-pill)] px-2.5 py-1.5"
+      style={{
+        background:
+          tone === 'urgent'
+            ? 'color-mix(in srgb, var(--asap) 16%, transparent)'
+            : 'var(--surface)',
+        border: `1px solid ${
+          tone === 'urgent' ? 'color-mix(in srgb, var(--asap) 32%, transparent)' : 'var(--hairline)'
+        }`,
+        color: tone === 'urgent' ? 'var(--asap)' : 'var(--text-secondary)',
+      }}
+    >
+      <strong style={{ color: tone === 'urgent' ? 'var(--asap)' : 'var(--text)' }}>{value}</strong>{' '}
+      {label}
+    </span>
   );
 }
 

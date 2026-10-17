@@ -42,6 +42,7 @@ const { seedTestUsers } = await import('./helpers/test-users.mts');
 const { db } = await import('../lib/db');
 const { users, pushSubscriptions } = await import('../lib/db/schema');
 const notify = await import('../lib/notify');
+const policy = await import('../lib/notify-policy');
 const { eq } = await import('drizzle-orm');
 
 let failures = 0;
@@ -97,29 +98,29 @@ function makeSubscription(pathname: string) {
   };
 }
 
-initDatabase();
-seedTestUsers();
-const all = db.select().from(users).all();
+await initDatabase();
+await seedTestUsers();
+const all = await db.select().from(users).all();
 const chris = all.find((u) => u.name === 'Chris')!;
 const tony = all.find((u) => u.name === 'Tony')!;
 const shelly = all.find((u) => u.name === 'Shelly')!;
 
 const now = Date.now();
-const addSub = (userId: number, pathname: string) => {
+const addSub = async (userId: number, pathname: string) => {
   const sub = makeSubscription(pathname);
-  db.insert(pushSubscriptions)
+  await db.insert(pushSubscriptions)
     .values({ userId, ...sub, userAgent: 'verify', createdAt: now, lastSeenAt: now })
     .run();
   return sub;
 };
 
 section('Configuration');
-check('VAPID keys are picked up', notify.pushConfigured());
-check('the public key is exposed for the browser', notify.vapidPublicKey() === vapid.publicKey);
+check('VAPID keys are picked up', await notify.pushConfigured());
+check('the public key is exposed for the browser', await notify.vapidPublicKey() === vapid.publicKey);
 
 section('Sending to one person');
-addSub(tony.id, '/tony-phone');
-addSub(shelly.id, '/shelly-phone');
+await addSub(tony.id, '/tony-phone');
+await addSub(shelly.id, '/shelly-phone');
 
 await notify.dispatch({
   audience: { kind: 'user', userId: tony.id },
@@ -146,7 +147,7 @@ check('with a TTL so it does not queue forever', received[0]?.headers.ttl === '3
 
 section('Two devices for one person');
 received.length = 0;
-addSub(tony.id, '/tony-ipad');
+await addSub(tony.id, '/tony-ipad');
 await notify.dispatch({
   audience: { kind: 'user', userId: tony.id },
   title: 'x',
@@ -160,7 +161,7 @@ received.length = 0;
 await notify.dispatch({ audience: { kind: 'admins' }, title: 'x', body: 'y', url: '/' });
 check('admins-only reaches nobody without a subscription', received.length === 0);
 
-addSub(chris.id, '/chris-phone');
+await addSub(chris.id, '/chris-phone');
 received.length = 0;
 await notify.dispatch({ audience: { kind: 'admins' }, title: 'x', body: 'y', url: '/' });
 check('now it reaches the admin', received.length === 1 && received[0].url === '/chris-phone');
@@ -178,28 +179,167 @@ await notify.dispatch({
 });
 check('excluding someone skips both their devices', received.length === 2, String(received.length));
 
+section('One device, one subscription');
+// The bug this guards: a phone mints a brand-new endpoint when the app is
+// reinstalled or the service worker is replaced, and the old endpoint keeps
+// accepting pushes for days afterwards. Two live rows, one phone, every job
+// buzzing twice.
+received.length = 0;
+const store = await import('../lib/push-store');
+const PHONE = 'sha256-of-tonys-phone-cookie';
+const firstInstall = makeSubscription('/tony-reinstall-old');
+const secondInstall = makeSubscription('/tony-reinstall-new');
+check(
+  'first subscribe from this device stores a row',
+  (await store.upsertSubscription(tony.id, firstInstall, 'verify', PHONE)).ok,
+);
+const afterReinstall = await store.upsertSubscription(tony.id, secondInstall, 'verify', PHONE);
+check('re-subscribing after a reinstall is accepted', afterReinstall.ok);
+check(
+  'and retires the endpoint it replaced',
+  afterReinstall.ok && afterReinstall.replaced === 1,
+  afterReinstall.ok ? String(afterReinstall.replaced) : 'refused',
+);
+const tonyRows = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, tony.id)).all();
+check(
+  'the stale endpoint is gone',
+  !tonyRows.some((r) => r.endpoint.endsWith('/tony-reinstall-old')),
+);
+check(
+  'the current one is kept',
+  tonyRows.some((r) => r.endpoint.endsWith('/tony-reinstall-new')),
+);
+// A different browser on the same account is a different device and must live
+// alongside it — this is deduplication, not "one subscription per person".
+const laptop = await store.upsertSubscription(tony.id, makeSubscription('/tony-laptop'), 'verify', 'sha256-of-laptop-cookie');
+check('a different device is left alone', laptop.ok && laptop.replaced === 0);
+// Rows with no hash predate the column, or came from a browser that had not
+// been handed its cookie yet. Guessing which device they belong to would
+// delete a working subscription, so they are never touched.
+const noCookie = await store.upsertSubscription(tony.id, makeSubscription('/tony-nocookie'), 'verify', null);
+check('a subscription with no device cookie still stores', noCookie.ok);
+check(
+  'and deletes nothing it cannot identify',
+  (await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, tony.id)).all()).length === 5,
+);
+// Leave the fixture as the later sections expect it: phone + iPad only.
+await db.delete(pushSubscriptions)
+  .where(eq(pushSubscriptions.userId, tony.id))
+  .run();
+await addSub(tony.id, '/tony-phone');
+await addSub(tony.id, '/tony-ipad');
+
+section('One action never buzzes one person twice about one job');
+// Posting an ASAP job AND handing it to someone writes two intents: "for you"
+// to the assignee, and "something is ASAP" to everyone but the poster. The
+// assignee is in both. dispatchAll collapses them on the shared tag.
+received.length = 0;
+await notify.dispatchAll([
+  {
+    audience: { kind: 'user', userId: tony.id },
+    title: 'For you',
+    body: 'Grease the skid steer',
+    url: '/?task=9',
+    tag: 'task-9',
+  },
+  {
+    audience: { kind: 'everyone', except: shelly.id },
+    title: 'Something is ASAP',
+    body: 'Grease the skid steer',
+    url: '/?task=9',
+    tag: 'task-9',
+  },
+]);
+const hitsFor = (name: string) => received.filter((r) => r.url.startsWith(name)).length;
+check('the assignee is told once, not twice', hitsFor('/tony-phone') === 1, String(hitsFor('/tony-phone')));
+check('on each of their devices', hitsFor('/tony-ipad') === 1, String(hitsFor('/tony-ipad')));
+check('everyone else still hears the broadcast', hitsFor('/chris-phone') === 1, String(hitsFor('/chris-phone')));
+check('and the excepted person hears nothing', hitsFor('/shelly-phone') === 0, String(hitsFor('/shelly-phone')));
+
+// A different job in the same batch is a different subject and must still send.
+received.length = 0;
+await notify.dispatchAll([
+  { audience: { kind: 'user', userId: tony.id }, title: 'a', body: 'b', url: '/', tag: 'task-10' },
+  { audience: { kind: 'user', userId: tony.id }, title: 'c', body: 'd', url: '/', tag: 'task-11' },
+]);
+check('two different jobs still buzz twice', hitsFor('/tony-phone') === 2, String(hitsFor('/tony-phone')));
+
+// Untagged intents are announcements about nothing in particular.
+received.length = 0;
+await notify.dispatchAll([
+  { audience: { kind: 'user', userId: tony.id }, title: 'a', body: 'b', url: '/' },
+  { audience: { kind: 'user', userId: tony.id }, title: 'c', body: 'd', url: '/' },
+]);
+check('untagged intents are never collapsed', hitsFor('/tony-phone') === 2, String(hitsFor('/tony-phone')));
+
+section("The admin's rules");
+received.length = 0;
+await notify.dispatch({
+  audience: { kind: 'admins', except: chris.id },
+  title: 'x',
+  body: 'y',
+  url: '/',
+});
+check('an admin is not told about their own tap', received.length === 0, String(received.length));
+
+received.length = 0;
+await notify.dispatch({
+  audience: { kind: 'everyone' },
+  title: 'x',
+  body: 'y',
+  url: '/',
+  event: 'task.completed',
+});
+check('a rule left on still sends', received.length === 4, String(received.length));
+
+await policy.setNotifyRule('task.completed', false);
+received.length = 0;
+await notify.dispatch({
+  audience: { kind: 'everyone' },
+  title: 'x',
+  body: 'y',
+  url: '/',
+  event: 'task.completed',
+});
+check('switching it off stops it at the sender', received.length === 0, String(received.length));
+
+received.length = 0;
+await notify.dispatch({
+  audience: { kind: 'everyone' },
+  title: 'x',
+  body: 'y',
+  url: '/',
+  event: 'task.assigned',
+});
+check('and leaves every other rule alone', received.length === 4, String(received.length));
+
+received.length = 0;
+await notify.dispatch({ audience: { kind: 'everyone' }, title: 'x', body: 'y', url: '/' });
+check('an announcement answers to no rule', received.length === 4, String(received.length));
+await policy.setNotifyRule('task.completed', true);
+
 section('Archived people are not notified');
-db.update(users).set({ archivedAt: Date.now() }).where(eq(users.id, shelly.id)).run();
+await db.update(users).set({ archivedAt: Date.now() }).where(eq(users.id, shelly.id)).run();
 received.length = 0;
 await notify.dispatch({ audience: { kind: 'everyone' }, title: 'x', body: 'y', url: '/' });
 check('an archived person is skipped', received.length === 3, String(received.length));
-db.update(users).set({ archivedAt: null }).where(eq(users.id, shelly.id)).run();
+await db.update(users).set({ archivedAt: null }).where(eq(users.id, shelly.id)).run();
 
 section('Dead subscriptions are pruned');
-addSub(chris.id, '/gone-away');
-const before = db.select().from(pushSubscriptions).all().length;
+await addSub(chris.id, '/gone-away');
+const before = (await db.select().from(pushSubscriptions).all()).length;
 received.length = 0;
 await notify.dispatch({ audience: { kind: 'user', userId: chris.id }, title: 'x', body: 'y', url: '/' });
-const after = db.select().from(pushSubscriptions).all().length;
+const after = (await db.select().from(pushSubscriptions).all()).length;
 check('the 410 endpoint was tried', received.some((r) => r.url === '/gone-away'));
 check('and its row was deleted', after === before - 1, `${before} -> ${after}`);
 check(
   'the live subscription survived',
-  db.select().from(pushSubscriptions).all().some((s) => s.endpoint.endsWith('/chris-phone')),
+  (await db.select().from(pushSubscriptions).all()).some((s) => s.endpoint.endsWith('/chris-phone')),
 );
 
 section('A failing push never breaks the action');
-db.insert(pushSubscriptions)
+await db.insert(pushSubscriptions)
   .values({
     userId: chris.id,
     endpoint: 'https://127.0.0.1:1/nothing-listening',
@@ -219,7 +359,7 @@ try {
 check('a connection refusal is swallowed', !threw);
 check(
   'and the unreachable row is kept, not deleted on a transient error',
-  db.select().from(pushSubscriptions).all().some((s) => s.endpoint.includes('nothing-listening')),
+  (await db.select().from(pushSubscriptions).all()).some((s) => s.endpoint.includes('nothing-listening')),
 );
 
 server.close();

@@ -1,5 +1,5 @@
 import 'server-only';
-import { eq } from 'drizzle-orm';
+import { and, eq, gte, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { loginThrottle } from '@/lib/db/schema';
 
@@ -16,12 +16,12 @@ export interface ThrottleState {
   attemptsRemaining: number;
 }
 
-function row(userId: number) {
-  return db.select().from(loginThrottle).where(eq(loginThrottle.userId, userId)).get();
+async function row(userId: number) {
+  return await db.select().from(loginThrottle).where(eq(loginThrottle.userId, userId)).get();
 }
 
-export function throttleState(userId: number, now: number = Date.now()): ThrottleState {
-  const t = row(userId);
+export async function throttleState(userId: number, now: number = Date.now()): Promise<ThrottleState> {
+  const t = await row(userId);
   if (!t) return { locked: false, retryAfterMs: 0, attemptsRemaining: MAX_ATTEMPTS };
   if (t.lockedUntil && t.lockedUntil > now) {
     return { locked: true, retryAfterMs: t.lockedUntil - now, attemptsRemaining: 0 };
@@ -33,39 +33,66 @@ export function throttleState(userId: number, now: number = Date.now()): Throttl
   };
 }
 
-/** Call after a wrong PIN. Returns the state the person now faces. */
-export function recordFailure(userId: number, now: number = Date.now()): ThrottleState {
-  const t = row(userId);
-  const failedCount = (t?.lockedUntil && t.lockedUntil > now ? t.failedCount : (t?.failedCount ?? 0)) + 1;
-  let lockoutLevel = t?.lockoutLevel ?? 0;
-  let lockedUntil = t?.lockedUntil ?? null;
-  let nextFailedCount = failedCount;
-
-  if (failedCount >= MAX_ATTEMPTS) {
-    lockoutLevel += 1;
-    const duration = Math.min(BASE_LOCKOUT_MS * 2 ** (lockoutLevel - 1), MAX_LOCKOUT_MS);
-    lockedUntil = now + duration;
-    // Reset the counter so the next five wrong tries trigger the next, longer lockout.
-    nextFailedCount = 0;
-  }
-
-  const values = {
-    userId,
-    failedCount: nextFailedCount,
-    lockedUntil,
-    lockoutLevel,
-    updatedAt: now,
-  };
-  db.insert(loginThrottle)
-    .values(values)
-    .onConflictDoUpdate({ target: loginThrottle.userId, set: values })
+/**
+ * Spends one of the five tries BEFORE the PIN is checked, in a single
+ * conditional UPDATE. False means there is no try left to spend.
+ *
+ * Checking the lock first and counting the failure after the hash let any
+ * number of guesses fired at once all pass the check before any of them was
+ * counted — five tries became as many as a script could send in parallel. With
+ * the try claimed up front, the sixth concurrent guess finds the count already
+ * at five and is refused without touching the hash. A correct PIN gives the try
+ * back (recordSuccess clears the count).
+ */
+export async function reserveAttempt(userId: number, now: number = Date.now()): Promise<boolean> {
+  await db
+    .insert(loginThrottle)
+    .values({ userId, failedCount: 0, lockedUntil: null, lockoutLevel: 0, updatedAt: now })
+    .onConflictDoNothing()
     .run();
+  const claimed = await db
+    .update(loginThrottle)
+    .set({ failedCount: sql`${loginThrottle.failedCount} + 1`, updatedAt: now })
+    .where(
+      and(
+        eq(loginThrottle.userId, userId),
+        or(isNull(loginThrottle.lockedUntil), lte(loginThrottle.lockedUntil, now)),
+        lt(loginThrottle.failedCount, MAX_ATTEMPTS),
+      ),
+    )
+    .run();
+  return claimed.rowsAffected === 1;
+}
 
-  return throttleState(userId, now);
+/**
+ * After a wrong PIN whose try was already reserved: if that was the fifth,
+ * start the lockout. Atomic too — of several wrong answers landing together,
+ * exactly one finds the count at five and doubles the lockout.
+ */
+export async function settleFailure(userId: number, now: number = Date.now()): Promise<ThrottleState> {
+  await db
+    .update(loginThrottle)
+    .set({
+      lockoutLevel: sql`${loginThrottle.lockoutLevel} + 1`,
+      // 60s · 2^(level so far), capped — the same doubling as before.
+      lockedUntil: sql`${now} + min(${BASE_LOCKOUT_MS} * (1 << ${loginThrottle.lockoutLevel}), ${MAX_LOCKOUT_MS})`,
+      // Reset the counter so the next five wrong tries trigger the next, longer lockout.
+      failedCount: 0,
+      updatedAt: now,
+    })
+    .where(and(eq(loginThrottle.userId, userId), gte(loginThrottle.failedCount, MAX_ATTEMPTS)))
+    .run();
+  return await throttleState(userId, now);
+}
+
+/** A wrong PIN, start to finish. Returns the state the person now faces. */
+export async function recordFailure(userId: number, now: number = Date.now()): Promise<ThrottleState> {
+  if (!(await reserveAttempt(userId, now))) return await throttleState(userId, now);
+  return await settleFailure(userId, now);
 }
 
 /** Call after a correct PIN — clears the counter and the doubling. */
-export function recordSuccess(userId: number, now: number = Date.now()): void {
+export async function recordSuccess(userId: number, now: number = Date.now()): Promise<void> {
   const values = {
     userId,
     failedCount: 0,
@@ -73,7 +100,7 @@ export function recordSuccess(userId: number, now: number = Date.now()): void {
     lockoutLevel: 0,
     updatedAt: now,
   };
-  db.insert(loginThrottle)
+  await db.insert(loginThrottle)
     .values(values)
     .onConflictDoUpdate({ target: loginThrottle.userId, set: values })
     .run();

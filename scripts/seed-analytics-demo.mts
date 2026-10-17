@@ -13,7 +13,7 @@ const payouts = await import('../lib/payouts');
 const { hashPin } = await import('../lib/auth/pin');
 const { eq } = await import('drizzle-orm');
 
-initDatabase();
+await initDatabase();
 
 const now = Date.now();
 const DAY = 86_400_000;
@@ -28,9 +28,9 @@ const CREW = [
 ];
 
 for (const person of CREW) {
-  const exists = db.select().from(users).where(eq(users.name, person.name)).get();
+  const exists = await db.select().from(users).where(eq(users.name, person.name)).get();
   if (!exists) {
-    db.insert(users)
+    await db.insert(users)
       .values({
         name: person.name,
         isAdmin: person.isAdmin,
@@ -43,7 +43,7 @@ for (const person of CREW) {
   }
 }
 
-const all = db.select().from(users).all();
+const all = await db.select().from(users).all();
 const chris = all.find((u) => u.name === 'Chris')!;
 const tony = all.find((u) => u.name === 'Tony')!;
 const shelly = all.find((u) => u.name === 'Shelly')!;
@@ -81,7 +81,7 @@ for (let daysAgo = 89; daysAgo >= 0; daysAgo -= 1) {
   for (let i = 0; i < count; i += 1) {
     const who = rand() < 0.45 ? tony : rand() < 0.6 ? shelly : alyssa;
     const reward = rand() < 0.16 ? [500, 1000, 1500, 2500][Math.floor(rand() * 4)] : null;
-    const created = machine.createTask(
+    const created = await machine.createTask(
       chris,
       {
         title: `${TITLES[n % TITLES.length]}`,
@@ -95,36 +95,36 @@ for (let daysAgo = 89; daysAgo >= 0; daysAgo -= 1) {
     );
     n += 1;
     if (!created.ok || created.taskId === undefined) continue;
-    if (rand() < 0.2) machine.claimTask(who, created.taskId, at - 3_600_000);
-    machine.completeTask(who, created.taskId, at);
+    if (rand() < 0.2) await machine.claimTask(who, created.taskId, at - 3_600_000);
+    await machine.completeTask(who, created.taskId, at);
     // Most bounties are settled; a few are left owing so Payouts has rows.
-    if (reward !== null && rand() < 0.6) payouts.markTaskPaid(chris, created.taskId, at + 3_600_000);
+    if (reward !== null && rand() < 0.6) await payouts.markTaskPaid(chris, created.taskId, at + 3_600_000);
   }
 }
 
 // A handful still open, one of them overdue.
-machine.createTask(
+await machine.createTask(
   chris,
   { title: 'Order more polish', notes: '', assignedTo: null, isAsap: false, dueLocal: null, rewardCents: 1500 },
   now - 2 * DAY,
 );
-machine.createTask(
+await machine.createTask(
   chris,
   { title: 'Fix the bay light', notes: '', assignedTo: tony.id, isAsap: true, dueLocal: null, rewardCents: null },
   now - DAY,
 );
-db.update(tasks)
+await db.update(tasks)
   .set({ dueAt: now - 6 * 3_600_000 })
   .where(eq(tasks.title, 'Fix the bay light'))
   .run();
 
-db.insert(supplyRequests)
+await db.insert(supplyRequests)
   .values([
     { item: 'Blue roll', quantity: 'a case', requestedBy: tony.id, status: 'requested', createdAt: now - 2 * DAY },
     { item: 'Screenwash', quantity: '5L', requestedBy: shelly.id, status: 'ordered', createdAt: now - 6 * DAY, orderedAt: now - 4 * DAY },
   ])
   .run();
 
-const done = db.select().from(tasks).all().filter((t) => t.status === 'done').length;
+const done = (await db.select().from(tasks).all()).filter((t) => t.status === 'done').length;
 console.log(`seeded ${done} finished tasqs across ${all.length} people at ${DB}`);
 console.log(`sign in as Chris (admin) or Tony / Shelly / Alyssa (crew), PIN ${PIN}`);

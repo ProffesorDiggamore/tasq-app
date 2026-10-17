@@ -17,9 +17,10 @@ import './globals.css';
 const APPEARANCE_SCRIPT = `(function(){var d=document.documentElement,s=%MODE%;function r(){return s==='light'||s==='dark'?s:window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}d.setAttribute('data-appearance',r());try{window.matchMedia('(prefers-color-scheme: light)').addEventListener('change',function(){if(s==='system')d.setAttribute('data-appearance',r())})}catch(e){}})()`;
 
 /**
- * The business's own name wherever the browser or the OS says who this is.
- * Falls back silently when the database has not been set up yet — including
- * during `next build`, which prerenders metadata before a board exists.
+ * The product name wherever the browser or the OS says who this is. Read
+ * through getOrgName() rather than the constant so a future per-board name
+ * lands here for free; the try/catch is what lets `next build` prerender this
+ * metadata before any database exists.
  */
 export async function generateMetadata(): Promise<Metadata> {
   let org = 'Board';
@@ -30,7 +31,7 @@ export async function generateMetadata(): Promise<Metadata> {
   }
   return {
     title: { default: org, template: `%s · ${org}` },
-    description: `Tasks and supply requests for ${org}.`,
+    description: 'Tasqs and supply requests for the shop.',
     applicationName: org,
     appleWebApp: {
       capable: true,
@@ -64,7 +65,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // No database yet during `next build` prerender — 'system' stands in.
   let appearance: string = 'system';
   try {
-    appearance = getAppearance();
+    appearance = await getAppearance();
   } catch {
     // Build time only.
   }
@@ -93,7 +94,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           }}
         />
       </head>
-      <body style={themeStyle()}>
+      <body style={await themeStyle()}>
         {shutOut ? (
           <WaitingRoom label={gate.label} blocked={gate.status === 'blocked'} />
         ) : (

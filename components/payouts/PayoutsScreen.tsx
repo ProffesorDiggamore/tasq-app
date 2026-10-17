@@ -64,7 +64,7 @@ export function PayoutsScreen({
           <SuccessCheck size={64} label="All settled" />
           <h2 className="type-headline mt-5">All settled</h2>
           <p className="type-callout mt-1.5 text-[var(--text-secondary)]">
-            Nobody is owed anything. Finished tasks with a bounty land here until you mark them
+            Nobody is owed anything. Finished tasqs with a bounty land here until you mark them
             paid.
           </p>
         </section>
@@ -100,7 +100,7 @@ export function PayoutsScreen({
                     <span className="min-w-0 flex-1">
                       <span className="type-headline block truncate">{p.name}</span>
                       <span className="type-caption block text-[var(--text-tertiary)]">
-                        {p.taskCount} {p.taskCount === 1 ? 'task' : 'tasks'} · oldest{' '}
+                        {p.taskCount} {p.taskCount === 1 ? 'tasq' : 'tasqs'} · oldest{' '}
                         {relativeTime(p.oldestAt, serverNow)}
                       </span>
                     </span>

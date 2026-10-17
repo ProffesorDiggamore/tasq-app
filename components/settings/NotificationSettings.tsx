@@ -20,7 +20,9 @@ const EXPLANATION: Record<PushState, string> = {
     'iPhone requires the board on your home screen for notifications. Share → Add to Home Screen, then open from there.',
   'not-configured':
     "Notifications aren't set up on the server. Check server logs.",
-  default: 'Get a buzz when a task is assigned to you or goes ASAP.',
+  'claimed-by-someone-else':
+    'This device is already signed up for notifications under a different name. Open the board as that person and stop notifications there first, then turn them on again as yourself.',
+  default: 'Get a buzz when a tasq is assigned to you or goes ASAP.',
   granted: 'On for this device.',
   denied:
     'Blocked in browser settings. Turn it back on there, then return.',
@@ -48,7 +50,10 @@ export function NotificationSettings() {
     <section>
       <h2 className="type-label px-1 text-[var(--text-tertiary)]">Notifications</h2>
       <div className="material-card mt-2.5 rounded-[var(--radius-card)] p-4">
-        <p className="type-callout text-[var(--text-secondary)]">{EXPLANATION[state]}</p>
+        <p className="type-callout text-[var(--text-secondary)]">
+          {/* Permission alone is not "on": the browser may have said yes to someone else. */}
+          {EXPLANATION[state === 'granted' && !subscribed ? 'default' : state]}
+        </p>
 
         {state === 'default' || (state === 'granted' && !subscribed) ? (
           <Button
@@ -61,7 +66,13 @@ export function NotificationSettings() {
               setBusy(true);
               void enablePush().then(async (next) => {
                 haptic(next === 'granted' ? 'commit' : 'error');
-                await refresh();
+                // A refusal has to stay on screen. Re-reading state here would see
+                // "permission granted, a subscription exists" and say "On".
+                if (next === 'granted') await refresh();
+                else {
+                  setState(next);
+                  setSubscribed(false);
+                }
                 setBusy(false);
               });
             }}

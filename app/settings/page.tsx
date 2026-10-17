@@ -7,6 +7,7 @@ import { SettingsLinks, type SettingsLink } from '@/components/settings/Settings
 import { SettingsNav, type SettingsTab } from '@/components/settings/SettingsNav';
 import { SettingsSection } from '@/components/settings/SettingsSection';
 import { NotificationSettings } from '@/components/settings/NotificationSettings';
+import { NotifyRules } from '@/components/settings/NotifyRules';
 import { ChangePinCard } from '@/components/settings/ChangePinCard';
 import { InstallCard } from '@/components/settings/InstallCard';
 import { currentUser } from '@/lib/auth/session';
@@ -17,10 +18,10 @@ import { listRecurrences } from '@/lib/recurrences';
 import { formatCents, outstandingPayouts } from '@/lib/payouts';
 import { outstandingSupplyCount } from '@/lib/supplies';
 import { getOrgName } from '@/lib/settings';
+import { getNotifyPolicy } from '@/lib/notify-policy';
 import { APPEARANCES, THEMES, getAppearance, getThemeKey } from '@/lib/theme';
 import pkg from '@/package.json';
 import { Logo } from '@/components/ui/Logo';
-import { OrgNameCard } from '@/components/settings/OrgNameCard';
 import { ThemeCard } from '@/components/settings/ThemeCard';
 
 export const dynamic = 'force-dynamic';
@@ -36,15 +37,7 @@ export const dynamic = 'force-dynamic';
  * and a deep link all land where the reader expects.
  */
 
-type SectionKey =
-  | 'general'
-  | 'account'
-  | 'notifications'
-  | 'tasqs'
-  | 'people'
-  | 'tabs'
-  | 'money'
-  | 'access';
+type SectionKey = 'account' | 'work' | 'notifications' | 'team' | 'appearance';
 
 export default async function SettingsPage({
   searchParams,
@@ -54,32 +47,32 @@ export default async function SettingsPage({
   const user = await currentUser();
   if (!user) redirect('/login');
 
-  // Everything an admin-only section would need is only queried when that
-  // section is the one open, so a crew member's Settings touches almost nothing.
-  const owed = user.isAdmin ? outstandingPayouts() : [];
+  // Badges stay visible in the index, so their small aggregate queries run for
+  // admins on every settings section. Full people, group and recurrence lists
+  // still load only inside the section that renders them.
+  const owed = user.isAdmin ? await outstandingPayouts() : [];
   const owedCents = owed.reduce((sum, p) => sum + p.cents, 0);
   const owedPeople = owed.length;
-  const waitingDevices = user.isAdmin ? pendingDeviceCount() : 0;
+  const waitingDevices = user.isAdmin ? await pendingDeviceCount() : 0;
 
-  const tabs: SettingsTab[] = [
-    { key: 'general', label: 'General' },
-    { key: 'account', label: 'Your account' },
-    { key: 'notifications', label: 'Notifications' },
-    { key: 'tasqs', label: 'Tasqs' },
-  ];
-  if (user.isAdmin) {
-    tabs.push(
-      { key: 'people', label: 'People' },
-      { key: 'tabs', label: 'Tabs' },
-      { key: 'money', label: 'Money', badge: owedPeople || undefined },
-      { key: 'access', label: 'Access', badge: waitingDevices || undefined },
-    );
-  }
+  const tabs: SettingsTab[] = user.isAdmin
+    ? [
+        { key: 'account', label: 'My account' },
+        { key: 'team', label: 'Team', badge: waitingDevices || undefined },
+        { key: 'work', label: 'Tasks & rewards', badge: owedPeople || undefined },
+        { key: 'notifications', label: 'Notifications' },
+        { key: 'appearance', label: 'Appearance' },
+      ]
+    : [
+        { key: 'account', label: 'My account' },
+        { key: 'work', label: 'Work' },
+        { key: 'notifications', label: 'Notifications' },
+      ];
 
   const { s } = await searchParams;
-  // An unknown or admin-only key from a stale link falls back to General
+  // An unknown or admin-only key from a stale link falls back to My account
   // rather than showing a crew member an empty pane.
-  const section: SectionKey = (tabs.some((t) => t.key === s) ? s : 'general') as SectionKey;
+  const section: SectionKey = (tabs.some((t) => t.key === s) ? s : 'account') as SectionKey;
 
   return (
     <>
@@ -97,45 +90,32 @@ export default async function SettingsPage({
         <div className="flex flex-col gap-5 md:flex-row md:gap-8">
           <SettingsNav tabs={tabs} current={section} />
 
-          {section === 'general' ? (
+          {section === 'account' ? (
             <SettingsSection
-              title="General"
-              description="What this board is called, and how it looks to everyone on it."
+              title="My account"
+              description={`Signed in as ${user.name}. ${
+                user.isAdmin
+                  ? 'Your sign-in, device install, and view of the board.'
+                  : 'Tap your face in the corner to hand the board to someone else.'
+              }`}
             >
-              <OrgNameCard name={getOrgName()} canEdit={user.isAdmin} />
-              {user.isAdmin ? (
-                <ThemeCard
-                  current={getThemeKey()}
-                  appearance={getAppearance()}
-                  themes={Object.entries(THEMES).map(([key, t]) => ({
-                    key,
-                    label: t.label,
-                    accent: t.accent,
-                    ink: t.ink,
-                  }))}
-                  appearances={Object.entries(APPEARANCES).map(([key, a]) => ({
-                    key,
-                    label: a.label,
-                  }))}
-                />
-              ) : null}
+              <ChangePinCard />
+              <InstallCard />
               <SettingsLinks
                 links={[
                   {
-                    // Everyone gets in here. What is behind the door differs —
-                    // see lib/analytics.ts, which builds a crew member's
-                    // payload without the shop's money or anybody else's
-                    // numbers in it at all.
+                    // Everyone can open Analytics, but the server sends crew a
+                    // personal DTO without shop money or anybody else's detail.
                     href: '/analytics',
                     label: 'Analytics',
                     hint: user.isAdmin
-                      ? 'The whole board: your work, the crew, and the money'
-                      : 'What you have finished, and how the shop is doing',
+                      ? 'Your work, the crew, and the board’s totals'
+                      : 'Your completions, streaks, and progress',
                   },
                   {
                     href: '/?tour=1',
                     label: 'Walkthrough',
-                    hint: 'A guided tour of the whole board, about a minute',
+                    hint: 'A quick tour of My Day and the rest of the board',
                   },
                 ]}
               />
@@ -143,17 +123,67 @@ export default async function SettingsPage({
             </SettingsSection>
           ) : null}
 
-          {section === 'account' ? (
+          {section === 'work' ? (
             <SettingsSection
-              title="Your account"
-              description={`Signed in as ${user.name}. ${
+              title={user.isAdmin ? 'Tasks & rewards' : 'Work'}
+              description={
                 user.isAdmin
-                  ? 'You run this board — money, people, and access are yours.'
-                  : 'Tap your face in the corner to hand the board to someone else.'
-              }`}
+                  ? 'Repeating work, supply requests, and rewards the board is tracking.'
+                  : 'Repeating work and the supplies you have asked the shop for.'
+              }
             >
-              <ChangePinCard />
-              <InstallCard />
+              <RecurrenceList
+                rules={await listRecurrences()}
+                people={(await listActiveUsers()).map(toPersonSummary)}
+                viewerId={user.id}
+                canSetReward={user.isAdmin}
+              />
+              <SettingsLinks
+                links={[
+                  {
+                    href: '/supplies',
+                    label: 'Supplies',
+                    hint: user.isAdmin
+                      ? 'Review the queue or request something'
+                      : 'Request something and follow your requests',
+                    badge: user.isAdmin ? await outstandingSupplyCount() : undefined,
+                  },
+                ]}
+              />
+
+              {user.isAdmin ? (
+                <>
+                  <div className="material-card rounded-[var(--radius-card)] p-4">
+                    <span className="type-label text-[var(--text-tertiary)]">
+                      Rewards outstanding
+                    </span>
+                    <p
+                      className="type-display tabular mt-1"
+                      style={{ color: owedCents > 0 ? 'var(--accent)' : 'var(--text-tertiary)' }}
+                    >
+                      {formatCents(owedCents)}
+                    </p>
+                    <p className="type-callout mt-1 text-[var(--text-secondary)]">
+                      {owedPeople === 0
+                        ? 'Nobody is owed anything.'
+                        : `across ${owedPeople} ${owedPeople === 1 ? 'person' : 'people'}`}
+                    </p>
+                  </div>
+                  <SettingsLinks
+                    links={[
+                      {
+                        href: '/payouts',
+                        label: 'Payouts',
+                        hint: 'See who is owed what and mark it paid',
+                        badge: owedPeople || undefined,
+                      },
+                    ]}
+                  />
+                  <p className="type-caption text-[var(--text-tertiary)]">
+                    Tasq records rewards and payments. It never moves money.
+                  </p>
+                </>
+              ) : null}
             </SettingsSection>
           ) : null}
 
@@ -163,6 +193,7 @@ export default async function SettingsPage({
               description="Manage when and how this device is told something happened."
             >
               <NotificationSettings />
+              {user.isAdmin ? <NotifyRules policy={await getNotifyPolicy()} /> : null}
               <SettingsLinks
                 links={[
                   {
@@ -175,104 +206,26 @@ export default async function SettingsPage({
             </SettingsSection>
           ) : null}
 
-          {section === 'tasqs' ? (
+          {section === 'team' && user.isAdmin ? (
             <SettingsSection
-              title="Tasqs"
-              description="Work that comes back on a schedule, and the things the shop needs ordered."
+              title="Team"
+              description="People, their tabs, approved devices, and the board’s activity record."
             >
-              <RecurrenceList
-                rules={listRecurrences()}
-                people={listActiveUsers().map(toPersonSummary)}
-                viewerId={user.id}
-                canSetReward={user.isAdmin}
-              />
-              <SettingsLinks
-                links={[
-                  {
-                    href: '/supplies',
-                    label: 'Supplies',
-                    hint: user.isAdmin
-                      ? 'The whole queue, and ask for something'
-                      : 'Ask for something, and see yours',
-                    badge: user.isAdmin ? outstandingSupplyCount() : undefined,
-                  },
-                ]}
-              />
-            </SettingsSection>
-          ) : null}
-
-          {section === 'people' && user.isAdmin ? (
-            <SettingsSection
-              title="People"
-              description="Who is on the crew, who runs the board, and whose PIN needs resetting."
-            >
-              <PeopleManager people={peopleRows(user.id)} />
-            </SettingsSection>
-          ) : null}
-
-          {section === 'tabs' && user.isAdmin ? (
-            <SettingsSection
-              title="Tabs"
-              description="Give part of the crew their own board. Only you can make one or decide who is on it."
-            >
+              <PeopleManager people={await peopleRows(user.id)} />
               <GroupsManager
-                groups={groupRows()}
-                people={listActiveUsers().map(toPersonSummary)}
+                groups={await groupRows()}
+                people={(await listActiveUsers()).map(toPersonSummary)}
               />
-            </SettingsSection>
-          ) : null}
-
-          {section === 'money' && user.isAdmin ? (
-            <SettingsSection
-              title="Money"
-              description="Bounties you have put on tasks, and what is still owed for the ones that got done."
-            >
-              <div className="material-card rounded-[var(--radius-card)] p-4">
-                <span className="type-label text-[var(--text-tertiary)]">Outstanding</span>
-                <p
-                  className="type-display tabular mt-1"
-                  style={{ color: owedCents > 0 ? 'var(--accent)' : 'var(--text-tertiary)' }}
-                >
-                  {formatCents(owedCents)}
-                </p>
-                <p className="type-callout mt-1 text-[var(--text-secondary)]">
-                  {owedPeople === 0
-                    ? 'Nobody is owed anything.'
-                    : `across ${owedPeople} ${owedPeople === 1 ? 'person' : 'people'}`}
-                </p>
-              </div>
-              <SettingsLinks
-                links={[
-                  {
-                    href: '/payouts',
-                    label: 'Payouts',
-                    hint: 'Who is owed what, and mark it paid',
-                    badge: owedPeople || undefined,
-                  },
-                ]}
-              />
-              <p className="type-caption text-[var(--text-tertiary)]">
-                Only an admin can put a bounty on a task. Tasq records what is owed — it never
-                moves any money.
-              </p>
-            </SettingsSection>
-          ) : null}
-
-          {section === 'access' && user.isAdmin ? (
-            <SettingsSection
-              title="Access"
-              description="Which devices may reach this board at all, and a record of everything that happened on it."
-            >
               <SettingsLinks
                 links={[
                   {
                     href: '/devices',
                     label: 'Devices',
-                    hint: whitelistEnabled()
+                    hint: await whitelistEnabled()
                       ? waitingDevices === 0
                         ? 'Only approved devices can reach the board'
                         : `${waitingDevices} waiting to be let in`
-                      : 'Lock the board to devices you approve',
+                      : 'Choose which devices may reach the board',
                     badge: waitingDevices || undefined,
                   },
                   {
@@ -284,14 +237,36 @@ export default async function SettingsPage({
               />
             </SettingsSection>
           ) : null}
+
+          {section === 'appearance' && user.isAdmin ? (
+            <SettingsSection
+              title="Appearance"
+              description="The light or dark mode and accent color everyone sees on this board."
+            >
+              <ThemeCard
+                current={await getThemeKey()}
+                appearance={await getAppearance()}
+                themes={Object.entries(THEMES).map(([key, t]) => ({
+                  key,
+                  label: t.label,
+                  accent: t.accent,
+                  ink: t.ink,
+                }))}
+                appearances={Object.entries(APPEARANCES).map(([key, a]) => ({
+                  key,
+                  label: a.label,
+                }))}
+              />
+            </SettingsSection>
+          ) : null}
         </div>
       </main>
     </>
   );
 }
 
-function peopleRows(viewerId: number): PersonRow[] {
-  return listActiveUsers().map((u) => ({
+async function peopleRows(viewerId: number): Promise<PersonRow[]> {
+  return (await listActiveUsers()).map((u) => ({
     id: u.id,
     name: u.name,
     isAdmin: u.isAdmin,
@@ -301,15 +276,17 @@ function peopleRows(viewerId: number): PersonRow[] {
   }));
 }
 
-function groupRows(): GroupRow[] {
-  return listGroups().map((g) => ({
-    id: g.id,
-    name: g.name,
-    memberIds: listGroupMemberIds(g.id),
-  }));
+async function groupRows(): Promise<GroupRow[]> {
+  return Promise.all(
+    (await listGroups()).map(async (g) => ({
+      id: g.id,
+      name: g.name,
+      memberIds: await listGroupMemberIds(g.id),
+    })),
+  );
 }
 
-/** The version stamp, kept on General so it is somewhere findable but not everywhere. */
+/** The version stamp, kept in My account so it is findable but not everywhere. */
 function Footer({ org }: { org: string }) {
   return (
     <div

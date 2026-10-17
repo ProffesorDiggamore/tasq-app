@@ -10,7 +10,7 @@ export default async function AnnouncePage() {
   const user = await currentUser();
   if (!user) redirect('/login');
 
-  const people = listActiveUsers()
+  const people = (await listActiveUsers())
     .map(toPersonSummary)
     .filter((p) => p.id !== user.id);
 
@@ -21,7 +21,7 @@ export default async function AnnouncePage() {
         userName={user.name}
         isAdmin={user.isAdmin}
         title="Announce"
-        backHref="/"
+        backHref="/settings?s=notifications"
       />
       <main className="flex min-h-[100dvh] flex-col pb-16 pt-4">
         <AnnounceForm people={people} />

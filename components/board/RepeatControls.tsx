@@ -139,7 +139,7 @@ export function RepeatControls({
           style={{ background: 'var(--surface-strong)', border: '1px solid var(--hairline)' }}
         />
         <p className="type-caption mt-2 text-[var(--text-tertiary)]">
-          Shop time. The task shows up on the board then, every time it repeats.
+          Shop time. The tasq shows up on the board then, every time it repeats.
         </p>
       </div>
     </div>

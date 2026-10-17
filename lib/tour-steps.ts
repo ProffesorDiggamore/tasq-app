@@ -74,8 +74,8 @@ export const TOUR_STEPS: TourStep[] = [
   {
     key: 'rows',
     target: 'rows',
-    title: 'Tasqs',
-    body: 'All things tasqs show up here — urgent first, then anything free to take, then yours.',
+    title: 'My Day',
+    body: 'Your work comes first. Urgent team work and anything free to claim stay right below it.',
   },
   {
     key: 'new-task',
@@ -101,6 +101,6 @@ export const TOUR_STEPS: TourStep[] = [
     target: null,
     kind: 'outro',
     title: "That's the whole app",
-    body: 'Run this tour again anytime from Settings → Walkthrough.',
+    body: 'Run this tour again anytime from Settings → My account → Walkthrough.',
   },
 ];

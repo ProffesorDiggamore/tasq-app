@@ -6,8 +6,9 @@ import { getOrgName } from '@/lib/settings';
  * chrome once the board is on a home screen — and on iOS it is also the
  * precondition for Web Push working at all.
  *
- * The name is the business's own, picked during first-run setup — this route is
- * dynamic so a rename in Settings reaches new home-screen installs.
+ * The name is the product name and does not vary per board (lib/settings.ts),
+ * so two phones installing this to the home screen a year apart get the same
+ * icon label. Kept dynamic anyway — the theme colour below still can change.
  */
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: org,
     short_name: org,
-    description: `Tasks and supply requests for ${org}.`,
+    description: 'Tasqs and supply requests for the shop.',
     start_url: '/',
     scope: '/',
     display: 'standalone',
@@ -31,7 +32,7 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
     shortcuts: [
-      { name: 'New task', url: '/new' },
+      { name: 'New tasq', url: '/new' },
       { name: 'Supplies', url: '/supplies' },
     ],
   };

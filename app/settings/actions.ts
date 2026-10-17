@@ -7,16 +7,17 @@ import { users, loginThrottle } from '@/lib/db/schema';
 import { requireAdmin, requireUser } from '@/lib/auth/session';
 import { changeOwnPin } from '@/lib/change-pin';
 import { logActivity } from '@/lib/activity';
-import { getOrgName, setSetting } from '@/lib/settings';
 import { setThemeKey, setAppearance } from '@/lib/theme';
+import { setNotifyRule } from '@/lib/notify-policy';
+import { NOTIFY_EVENTS, type NotifyEventKey } from '@/lib/notify-events';
 import { fail, ok, type ActionResult } from '@/lib/action-result';
 
 function cleanName(raw: string): string {
   return raw.trim().replace(/\s+/g, ' ');
 }
 
-function countOtherAdmins(exceptId: number): number {
-  const row = db
+async function countOtherAdmins(exceptId: number): Promise<number> {
+  const row = await db
     .select({ n: sql<number>`count(*)` })
     .from(users)
     .where(and(eq(users.isAdmin, true), isNull(users.archivedAt), ne(users.id, exceptId)))
@@ -29,13 +30,13 @@ export async function createUserAction(name: string, isAdmin: boolean): Promise<
   const clean = cleanName(name);
   if (clean.length < 2) return fail('Name needs at least two characters.');
 
-  const existing = db.select().from(users).where(eq(users.name, clean)).get();
+  const existing = await db.select().from(users).where(eq(users.name, clean)).get();
   if (existing) {
     // Names are unique. Bringing an archived person back is the friendlier answer
     // than refusing, and it keeps their history attached to the same row.
     if (existing.archivedAt !== null) {
-      db.update(users).set({ archivedAt: null, isAdmin }).where(eq(users.id, existing.id)).run();
-      logActivity({
+      await db.update(users).set({ archivedAt: null, isAdmin }).where(eq(users.id, existing.id)).run();
+      await logActivity({
         actorId: admin.id,
         verb: 'user.updated',
         subjectType: 'user',
@@ -48,13 +49,13 @@ export async function createUserAction(name: string, isAdmin: boolean): Promise<
     return fail(`${clean} is already on the board.`);
   }
 
-  const inserted = db
+  const inserted = await db
     .insert(users)
     .values({ name: clean, isAdmin, createdAt: Date.now() })
     .returning({ id: users.id })
     .get();
 
-  logActivity({
+  await logActivity({
     actorId: admin.id,
     verb: 'user.created',
     subjectType: 'user',
@@ -67,18 +68,18 @@ export async function createUserAction(name: string, isAdmin: boolean): Promise<
 
 export async function renameUserAction(userId: number, name: string): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const target = db.select().from(users).where(eq(users.id, userId)).get();
+  const target = await db.select().from(users).where(eq(users.id, userId)).get();
   if (!target) return fail('That person is no longer on the board.');
 
   const clean = cleanName(name);
   if (clean.length < 2) return fail('Name needs at least two characters.');
   if (clean === target.name) return ok;
 
-  const clash = db.select().from(users).where(eq(users.name, clean)).get();
+  const clash = await db.select().from(users).where(eq(users.name, clean)).get();
   if (clash) return fail(`${clean} is already taken.`);
 
-  db.update(users).set({ name: clean }).where(eq(users.id, userId)).run();
-  logActivity({
+  await db.update(users).set({ name: clean }).where(eq(users.id, userId)).run();
+  await logActivity({
     actorId: admin.id,
     verb: 'user.updated',
     subjectType: 'user',
@@ -91,7 +92,7 @@ export async function renameUserAction(userId: number, name: string): Promise<Ac
 
 export async function setAdminAction(userId: number, isAdmin: boolean): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const target = db.select().from(users).where(eq(users.id, userId)).get();
+  const target = await db.select().from(users).where(eq(users.id, userId)).get();
   if (!target) return fail('That person is no longer on the board.');
   // The buyer activated the board with this account; it is the one thing they
   // can never accidentally lose.
@@ -99,12 +100,12 @@ export async function setAdminAction(userId: number, isAdmin: boolean): Promise<
     return fail('The owner account stays an admin.');
   }
   // Without this the shop can lock itself out of Supply Requests and History.
-  if (!isAdmin && countOtherAdmins(userId) === 0) {
+  if (!isAdmin && await countOtherAdmins(userId) === 0) {
     return fail('Someone has to stay an admin.');
   }
 
-  db.update(users).set({ isAdmin }).where(eq(users.id, userId)).run();
-  logActivity({
+  await db.update(users).set({ isAdmin }).where(eq(users.id, userId)).run();
+  await logActivity({
     actorId: admin.id,
     verb: 'user.updated',
     subjectType: 'user',
@@ -120,18 +121,18 @@ export async function setAdminAction(userId: number, isAdmin: boolean): Promise<
 /** Soft delete. The person leaves the pickers; every row they touched stays. */
 export async function archiveUserAction(userId: number): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const target = db.select().from(users).where(eq(users.id, userId)).get();
+  const target = await db.select().from(users).where(eq(users.id, userId)).get();
   if (!target) return fail('That person is no longer on the board.');
   if (target.id === admin.id) return fail("You can't remove yourself.");
   if (target.isFounder) {
     return fail("The owner account can't be removed.");
   }
-  if (target.isAdmin && countOtherAdmins(userId) === 0) {
+  if (target.isAdmin && await countOtherAdmins(userId) === 0) {
     return fail('Someone has to stay an admin.');
   }
 
-  db.update(users).set({ archivedAt: Date.now() }).where(eq(users.id, userId)).run();
-  logActivity({
+  await db.update(users).set({ archivedAt: Date.now() }).where(eq(users.id, userId)).run();
+  await logActivity({
     actorId: admin.id,
     verb: 'user.archived',
     subjectType: 'user',
@@ -145,13 +146,13 @@ export async function archiveUserAction(userId: number): Promise<ActionResult> {
 /** Clears the hash so the next tap on their name re-enrols, and lifts any lockout. */
 export async function resetPinAction(userId: number): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const target = db.select().from(users).where(eq(users.id, userId)).get();
+  const target = await db.select().from(users).where(eq(users.id, userId)).get();
   if (!target) return fail('That person is no longer on the board.');
 
-  db.update(users).set({ pinHash: null }).where(eq(users.id, userId)).run();
-  db.delete(loginThrottle).where(eq(loginThrottle.userId, userId)).run();
+  await db.update(users).set({ pinHash: null }).where(eq(users.id, userId)).run();
+  await db.delete(loginThrottle).where(eq(loginThrottle.userId, userId)).run();
 
-  logActivity({
+  await logActivity({
     actorId: admin.id,
     verb: 'user.pin_reset',
     subjectType: 'user',
@@ -174,31 +175,11 @@ export async function changeOwnPinAction(
   return result;
 }
 
-/** The business name shown across the board and on home-screen installs. */
-export async function setOrgNameAction(name: string): Promise<ActionResult> {
-  const admin = await requireAdmin();
-  const clean = name.trim().replace(/\s+/g, ' ').slice(0, 60);
-  if (clean.length < 2) return fail('The name needs at least two characters.');
-  if (clean === getOrgName()) return ok;
-
-  setSetting('org.name', clean);
-  logActivity({
-    actorId: admin.id,
-    verb: 'board.renamed',
-    subjectType: 'setting',
-    subjectId: null,
-    summary: `${admin.name} renamed the board to “${clean}”`,
-  });
-  revalidatePath('/settings');
-  revalidatePath('/');
-  return ok;
-}
-
 /** The accent color every device sees — buttons, tabs, badges, rewards. */
 export async function setThemeAction(key: string): Promise<ActionResult> {
   const admin = await requireAdmin();
-  if (!setThemeKey(key)) return fail('That theme does not exist.');
-  logActivity({
+  if (!await setThemeKey(key)) return fail('That theme does not exist.');
+  await logActivity({
     actorId: admin.id,
     verb: 'board.rethemed',
     subjectType: 'setting',
@@ -212,8 +193,8 @@ export async function setThemeAction(key: string): Promise<ActionResult> {
 /** Light, dark, or follow the device — board-wide, like the accent. */
 export async function setAppearanceAction(mode: string): Promise<ActionResult> {
   const admin = await requireAdmin();
-  if (!setAppearance(mode)) return fail('That appearance does not exist.');
-  logActivity({
+  if (!await setAppearance(mode)) return fail('That appearance does not exist.');
+  await logActivity({
     actorId: admin.id,
     verb: 'board.rethemed',
     subjectType: 'setting',
@@ -221,5 +202,28 @@ export async function setAppearanceAction(mode: string): Promise<ActionResult> {
     summary: `${admin.name} changed the appearance`,
   });
   revalidatePath('/', 'layout');
+  return ok;
+}
+
+/**
+ * Which automatic buzzes this board sends. Admin-only and board-wide: the
+ * person who has to answer for a phone going off at 6am is the one who decides
+ * what sets it off.
+ */
+export async function setNotifyRuleAction(
+  event: NotifyEventKey,
+  enabled: boolean,
+): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  if (!await setNotifyRule(event, enabled)) return fail('That notification does not exist.');
+  const spec = NOTIFY_EVENTS.find((candidate) => candidate.key === event)!;
+  await logActivity({
+    actorId: admin.id,
+    verb: 'board.notifications-changed',
+    subjectType: 'setting',
+    subjectId: null,
+    summary: `${admin.name} turned ${enabled ? 'on' : 'off'} notifications for “${spec.label}”`,
+  });
+  revalidatePath('/settings');
   return ok;
 }

@@ -72,6 +72,8 @@ self.addEventListener('fetch', (event) => {
         (hit) =>
           hit ??
           fetch(request).then((response) => {
+            // A 404 for a chunk from an older deploy must not be pinned forever.
+            if (!response.ok) return response;
             const copy = response.clone();
             caches.open(CACHE).then((cache) => cache.put(request, copy)).then(trimCache);
             return response;

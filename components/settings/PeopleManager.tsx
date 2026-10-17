@@ -179,7 +179,7 @@ export function PeopleManager({ people }: { people: PersonRow[] }) {
                       </div>
 
                       <p className="type-caption text-[var(--text-tertiary)]">
-                        Removing someone hides them from the board. Their tasks and history stay.
+                        Removing someone hides them from the board. Their tasqs and history stay.
                       </p>
                     </div>
                   </motion.div>

@@ -1,7 +1,45 @@
-import type { BoardTask } from '@/lib/board-types';
+import type { BoardData, BoardTask } from '@/lib/board-types';
 import { formatShort, relativeTime } from '@/lib/time';
 
 export type CardAction = 'accept' | 'decline' | 'claim' | 'complete' | 'reopen';
+
+export interface MyDaySections {
+  /** Work that already belongs to the signed-in person. */
+  mine: BoardTask[];
+  /** Urgent work visible to the team, excluding work already shown in mine. */
+  urgent: BoardTask[];
+  /** Claimable work, excluding urgent cards already surfaced above it. */
+  available: BoardTask[];
+  /** Remaining recurring work that the old recurring rail exposed to the team. */
+  teamToday: BoardTask[];
+}
+
+/**
+ * Turns the overlapping board queries into one calm daily hierarchy.
+ *
+ * The database intentionally returns the same task through several lenses: an
+ * ASAP assigned to you is both `asap` and `mine`, and a repeating task is also
+ * present in its normal ownership row. The old homepage rendered every lens as
+ * a separate rail, so one urgent repeat could appear three times. My Day keeps
+ * every behaviour and action but assigns each open task to its first useful
+ * section, exactly once.
+ */
+export function myDaySections(board: BoardData): MyDaySections {
+  const shown = new Set<number>();
+  const unique = (tasks: BoardTask[]) =>
+    tasks.filter((task) => {
+      if (shown.has(task.id)) return false;
+      shown.add(task.id);
+      return task.status !== 'done' && task.status !== 'cancelled';
+    });
+
+  return {
+    mine: unique(board.mine),
+    urgent: unique(board.asap),
+    available: unique(board.pool),
+    teamToday: unique(board.recurring),
+  };
+}
 
 /**
  * What a person can do with this card *from the row* — the sheet offers the
@@ -39,7 +77,7 @@ export function ownerLine(task: BoardTask, viewerId: number): string {
     const who = task.completedBy === viewerId ? 'You' : (task.completedByName ?? 'Someone');
     return `${who} finished it`;
   }
-  if (task.assignedTo === null) return `Up for grabs · from ${task.createdByName}`;
+  if (task.assignedTo === null) return `Unclaimed · from ${task.createdByName}`;
   const who = task.assignedTo === viewerId ? 'You' : task.assignedToName;
   if (task.createdBy === task.assignedTo) return `${who}`;
   return `${who} · from ${task.createdByName}`;

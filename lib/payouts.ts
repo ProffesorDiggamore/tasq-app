@@ -26,8 +26,8 @@ const unpaid = and(
 );
 
 /** Everyone still owed something, biggest debt first. Never returns a zero. */
-export function outstandingPayouts(): PayoutPerson[] {
-  const rows = db
+export async function outstandingPayouts(): Promise<PayoutPerson[]> {
+  const rows = await db
     .select({
       userId: tasks.completedBy,
       name: users.name,
@@ -41,22 +41,24 @@ export function outstandingPayouts(): PayoutPerson[] {
     .groupBy(tasks.completedBy, users.name)
     .all();
 
-  return rows
-    .filter((r) => r.userId !== null && r.cents > 0)
-    .map((r) => ({
-      userId: r.userId as number,
-      name: r.name,
-      cents: r.cents,
-      taskCount: r.count,
-      oldestAt: r.oldest,
-      tasks: unpaidTasksFor(r.userId as number),
-    }))
-    .sort((a, b) => b.cents - a.cents);
+  const people = await Promise.all(
+    rows
+      .filter((r) => r.userId !== null && r.cents > 0)
+      .map(async (r) => ({
+        userId: r.userId as number,
+        name: r.name,
+        cents: r.cents,
+        taskCount: r.count,
+        oldestAt: r.oldest,
+        tasks: await unpaidTasksFor(r.userId as number),
+      })),
+  );
+  return people.sort((a, b) => b.cents - a.cents);
 }
 
 /** The individual jobs behind one person's total, oldest first. */
-export function unpaidTasksFor(userId: number): PayoutTask[] {
-  return db
+export async function unpaidTasksFor(userId: number): Promise<PayoutTask[]> {
+  return (await db
     .select({
       id: tasks.id,
       title: tasks.title,
@@ -66,7 +68,7 @@ export function unpaidTasksFor(userId: number): PayoutTask[] {
     .from(tasks)
     .where(and(unpaid, eq(tasks.completedBy, userId)))
     .orderBy(sql`${tasks.completedAt} asc`)
-    .all()
+    .all())
     .map((t) => ({
       id: t.id,
       title: t.title,
@@ -76,8 +78,8 @@ export function unpaidTasksFor(userId: number): PayoutTask[] {
 }
 
 /** Total across everyone, for the badge on the Settings link. */
-export function totalOwedCents(): number {
-  const row = db
+export async function totalOwedCents(): Promise<number> {
+  const row = await db
     .select({ cents: sql<number>`coalesce(sum(${tasks.rewardCents}), 0)` })
     .from(tasks)
     .where(unpaid)
@@ -90,25 +92,25 @@ export function totalOwedCents(): number {
  * unpaid condition it read, so paying twice in two taps cannot double-stamp —
  * the second one finds nothing and says so.
  */
-export function markPersonPaid(
+export async function markPersonPaid(
   admin: User,
   userId: number,
   now: number = Date.now(),
-): ActionResult & { cents?: number } {
-  const owed = unpaidTasksFor(userId);
+): Promise<ActionResult & { cents?: number }> {
+  const owed = await unpaidTasksFor(userId);
   if (owed.length === 0) return fail('Nothing outstanding for them.');
 
-  const person = db.select().from(users).where(eq(users.id, userId)).get();
+  const person = await db.select().from(users).where(eq(users.id, userId)).get();
   const cents = owed.reduce((sum, t) => sum + t.rewardCents, 0);
 
-  const result = db
+  const result = await db
     .update(tasks)
     .set({ rewardPaidAt: now, rewardPaidBy: admin.id })
     .where(and(unpaid, eq(tasks.completedBy, userId)))
     .run();
-  if (result.changes === 0) return fail('Someone just settled that.');
+  if (result.rowsAffected === 0) return fail('Someone just settled that.');
 
-  logActivity(
+  await logActivity(
     {
       actorId: admin.id,
       verb: 'payout.settled',
@@ -125,26 +127,26 @@ export function markPersonPaid(
 }
 
 /** Settle one job on its own, for the case where a bounty is paid piecemeal. */
-export function markTaskPaid(
+export async function markTaskPaid(
   admin: User,
   taskId: number,
   now: number = Date.now(),
-): ActionResult {
-  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
-  if (!task) return fail('That task is gone.');
+): Promise<ActionResult> {
+  const task = await db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  if (!task) return fail('That tasq is gone.');
 
-  const result = db
+  const result = await db
     .update(tasks)
     .set({ rewardPaidAt: now, rewardPaidBy: admin.id })
     .where(and(unpaid, eq(tasks.id, taskId)))
     .run();
-  if (result.changes === 0) return fail('That one is already settled.');
+  if (result.rowsAffected === 0) return fail('That one is already settled.');
 
   const who = task.completedBy
-    ? db.select({ name: users.name }).from(users).where(eq(users.id, task.completedBy)).get()?.name
+    ? (await db.select({ name: users.name }).from(users).where(eq(users.id, task.completedBy)).get())?.name
     : null;
 
-  logActivity(
+  await logActivity(
     {
       actorId: admin.id,
       verb: 'payout.settled',

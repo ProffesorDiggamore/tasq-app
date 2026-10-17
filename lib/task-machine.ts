@@ -6,6 +6,14 @@ import { canUseGroup } from '@/lib/groups';
 import { logActivity } from '@/lib/activity';
 import { localWallClockToUtc } from '@/lib/time';
 import type { NewTaskInput, NotifyIntent, TaskActionResult } from '@/lib/board-types';
+import { money } from '@/lib/money';
+import {
+  ASAP_FOR_YOU_HEADLINE,
+  NOTIFY_HEADLINE,
+  notifyBody,
+  personDetail,
+  taskDetail,
+} from '@/lib/notify-copy';
 
 /**
  * The task status machine, kept free of request context so every transition can
@@ -26,32 +34,32 @@ const TITLE_MAX = 120;
 const NOTES_MAX = 4000;
 const REASON_MAX = 280;
 
-function nameOf(userId: number): string {
+async function nameOf(userId: number): Promise<string> {
   return (
-    db.select({ name: users.name }).from(users).where(eq(users.id, userId)).get()?.name ?? 'Someone'
+    (await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).get())?.name ?? 'Someone'
   );
 }
 
-function explainMiss(taskId: number): TaskActionResult & { code?: string } {
-  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+async function explainMiss(taskId: number): Promise<TaskActionResult & { code?: string }> {
+  const task = await db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) return { ok: false, reason: 'gone', code: 'TASQ-E0201' };
 
   if (task.status === 'cancelled') {
-    return { ok: false, reason: 'stale', code: 'TASQ-E0202', message: 'That task was cancelled.' };
+    return { ok: false, reason: 'stale', code: 'TASQ-E0202', message: 'That tasq was cancelled.' };
   }
   if (task.status === 'done') {
-    const by = task.completedBy ? nameOf(task.completedBy) : null;
+    const by = task.completedBy ? await nameOf(task.completedBy) : null;
     return {
       ok: false,
       reason: 'stale',
       code: 'TASQ-E0203',
-      message: by ? `${by} already finished that one.` : 'That task is already done.',
+      message: by ? `${by} already finished that one.` : 'That tasq is already done.',
     };
   }
   if (task.assignedTo !== null) {
-    return { ok: false, reason: 'claimed', code: 'TASQ-E0204', by: nameOf(task.assignedTo) };
+    return { ok: false, reason: 'claimed', code: 'TASQ-E0204', by: await nameOf(task.assignedTo) };
   }
-  return { ok: false, reason: 'stale', code: 'TASQ-E0211', message: 'That task moved — pull down to refresh.' };
+  return { ok: false, reason: 'stale', code: 'TASQ-E0211', message: 'That tasq moved — pull down to refresh.' };
 }
 
 function clean(value: string, max: number): string {
@@ -67,19 +75,19 @@ function normalizeReward(cents: number | null | undefined): number | null {
 }
 
 function rewardSuffix(cents: number | null): string {
-  return cents ? ` for $${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}` : '';
+  return cents ? ` for ${money(cents)}` : '';
 }
 
-export function createTask(
+export async function createTask(
   actor: User,
   input: NewTaskInput,
   now: number = Date.now(),
-): MachineResult & { taskId?: number } {
+): Promise<MachineResult & { taskId?: number }> {
   // Anyone on the board can post work — to the shared Tasqs tab, or to a tab
   // they are in. What stays the owner's alone is money: a bounty is spending,
   // so a non-admin's reward is dropped rather than the whole task refused.
   const groupId = input.groupId ?? null;
-  if (!canUseGroup(actor, groupId)) {
+  if (!await canUseGroup(actor, groupId)) {
     return {
       ok: false,
       reason: 'invalid',
@@ -94,7 +102,7 @@ export function createTask(
 
   let assignedTo: number | null = null;
   if (input.assignedTo !== null) {
-    const target = db
+    const target = await db
       .select()
       .from(users)
       .where(and(eq(users.id, input.assignedTo), isNull(users.archivedAt)))
@@ -114,7 +122,7 @@ export function createTask(
     dueAt = localWallClockToUtc(match[1], match[2]);
   }
 
-  const created = db
+  const created = await db
     .insert(tasks)
     .values({
       title,
@@ -132,7 +140,7 @@ export function createTask(
     .returning({ id: tasks.id })
     .get();
 
-  logActivity(
+  await logActivity(
     {
       actorId: actor.id,
       verb: assignedTo === null ? 'task.created' : 'task.assigned',
@@ -143,7 +151,7 @@ export function createTask(
           ? `${actor.name} put "${title}" up for grabs${rewardSuffix(rewardCents)}${
               input.isAsap ? ' (ASAP)' : ''
             }`
-          : `${actor.name} assigned "${title}" to ${nameOf(assignedTo)}${rewardSuffix(
+          : `${actor.name} assigned "${title}" to ${await nameOf(assignedTo)}${rewardSuffix(
               rewardCents,
             )}${input.isAsap ? ' (ASAP)' : ''}`,
     },
@@ -152,14 +160,21 @@ export function createTask(
 
   const notify: NotifyIntent[] = [];
   const url = `/?task=${created.id}`;
-  if (assignedTo !== null && assignedTo !== actor.id) {
+  if (assignedTo !== null) {
+    // Assigning yourself buzzes too, under its own rule: someone standing at the
+    // board adding six jobs to their own list wants the same receipt on their
+    // phone that everybody else gets, and an admin who never sees one has no way
+    // to tell a working notification from a broken one.
+    const mine = assignedTo === actor.id;
+    const event = mine ? 'task.self-assigned' : 'task.assigned';
     notify.push({
       audience: { kind: 'user', userId: assignedTo },
-      title: input.isAsap ? 'ASAP — for you' : `${actor.name} assigned you a task`,
-      body: title,
+      title: input.isAsap ? ASAP_FOR_YOU_HEADLINE : NOTIFY_HEADLINE[event],
+      body: notifyBody(title, taskDetail({ rewardCents, dueAt, notes })),
       url,
       tag: `task-${created.id}`,
       urgent: input.isAsap,
+      event,
     });
   }
   if (input.isAsap) {
@@ -171,11 +186,12 @@ export function createTask(
         groupId === null
           ? { kind: 'everyone', except: actor.id }
           : { kind: 'group', groupId, except: actor.id },
-      title: 'ASAP',
-      body: title,
+      title: NOTIFY_HEADLINE['task.asap'],
+      body: notifyBody(title, taskDetail({ rewardCents, dueAt, notes })),
       url,
       tag: `task-${created.id}`,
       urgent: true,
+      event: 'task.asap',
     });
   }
 
@@ -190,20 +206,20 @@ export function createTask(
  * not agreed to anything yet, and inheriting someone else's acceptance would
  * mean the board claims a person took work they have never seen.
  */
-export function updateTask(
+export async function updateTask(
   actor: User,
   taskId: number,
   input: NewTaskInput,
   now: number = Date.now(),
-): MachineResult {
-  const existing = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+): Promise<MachineResult> {
+  const existing = await db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!existing) return { ok: false, reason: 'gone' };
   if (existing.createdBy !== actor.id && !actor.isAdmin) {
     return {
       ok: false,
       reason: 'invalid',
       code: 'TASQ-E0209',
-      message: `Only ${nameOf(existing.createdBy)} or an admin can edit that.`,
+      message: `Only ${await nameOf(existing.createdBy)} or an admin can edit that.`,
     };
   }
   if (existing.status === 'done' || existing.status === 'cancelled') {
@@ -211,7 +227,7 @@ export function updateTask(
       ok: false,
       reason: 'stale',
       code: existing.status === 'done' ? 'TASQ-E0203' : 'TASQ-E0202',
-      message: `That task is already ${existing.status}. Put it back first.`,
+      message: `That tasq is already ${existing.status}. Put it back first.`,
     };
   }
 
@@ -221,7 +237,7 @@ export function updateTask(
 
   let assignedTo: number | null = null;
   if (input.assignedTo !== null) {
-    const target = db
+    const target = await db
       .select()
       .from(users)
       .where(and(eq(users.id, input.assignedTo), isNull(users.archivedAt)))
@@ -248,7 +264,7 @@ export function updateTask(
   // keeps whatever bounty it already had, whatever the form sent.
   const rewardCents = actor.isAdmin ? normalizeReward(input.rewardCents) : existing.rewardCents;
 
-  const result = db
+  const result = await db
     .update(tasks)
     .set({
       title,
@@ -267,12 +283,12 @@ export function updateTask(
     // else finishing or cancelling the task a moment earlier.
     .where(and(eq(tasks.id, taskId), eq(tasks.status, existing.status)))
     .run();
-  if (result.changes === 0) return explainMiss(taskId);
+  if (result.rowsAffected === 0) return await explainMiss(taskId);
 
   const changes: string[] = [];
   if (title !== existing.title) changes.push(`renamed it from "${existing.title}"`);
   if (reassigned) {
-    changes.push(assignedTo === null ? 'put it up for grabs' : `gave it to ${nameOf(assignedTo)}`);
+    changes.push(assignedTo === null ? 'put it up for grabs' : `gave it to ${await nameOf(assignedTo)}`);
   }
   if (input.isAsap !== existing.isAsap) {
     changes.push(input.isAsap ? 'marked it ASAP' : 'took ASAP off it');
@@ -287,7 +303,7 @@ export function updateTask(
     }
   }
 
-  logActivity(
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'task.updated',
@@ -303,42 +319,50 @@ export function updateTask(
 
   const notify: NotifyIntent[] = [];
   const url = `/?task=${taskId}`;
-  if (reassigned && assignedTo !== null && assignedTo !== actor.id) {
+  if (reassigned && assignedTo !== null) {
+    const mine = assignedTo === actor.id;
+    const event = mine ? 'task.self-assigned' : 'task.assigned';
     notify.push({
       audience: { kind: 'user', userId: assignedTo },
-      title: input.isAsap ? 'ASAP — for you' : `${actor.name} assigned you a task`,
-      body: title,
+      title: input.isAsap ? ASAP_FOR_YOU_HEADLINE : NOTIFY_HEADLINE[event],
+      body: notifyBody(title, taskDetail({ rewardCents, dueAt, notes })),
       url,
       tag: `task-${taskId}`,
       urgent: input.isAsap,
+      event,
     });
   }
   // Only when it *becomes* ASAP — every later edit would otherwise re-alert everyone.
+  // Same audience rule as createTask: on a group tab, only that tab hears it.
   if (input.isAsap && !existing.isAsap) {
     notify.push({
-      audience: { kind: 'everyone', except: actor.id },
-      title: 'ASAP',
-      body: title,
+      audience:
+        existing.groupId === null
+          ? { kind: 'everyone', except: actor.id }
+          : { kind: 'group', groupId: existing.groupId, except: actor.id },
+      title: NOTIFY_HEADLINE['task.asap'],
+      body: notifyBody(title, taskDetail({ rewardCents, dueAt, notes })),
       url,
       tag: `task-${taskId}`,
       urgent: true,
+      event: 'task.asap',
     });
   }
 
   return { ok: true, notify };
 }
 
-export function acceptTask(actor: User, taskId: number, now: number = Date.now()): MachineResult {
-  const result = db
+export async function acceptTask(actor: User, taskId: number, now: number = Date.now()): Promise<MachineResult> {
+  const result = await db
     .update(tasks)
     .set({ status: 'accepted', acceptedAt: now, updatedAt: now })
     .where(and(eq(tasks.id, taskId), eq(tasks.assignedTo, actor.id), eq(tasks.status, 'pending')))
     .run();
 
-  if (result.changes === 0) return explainMiss(taskId);
+  if (result.rowsAffected === 0) return await explainMiss(taskId);
 
-  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
-  logActivity(
+  const task = (await db.select().from(tasks).where(eq(tasks.id, taskId)).get())!;
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'task.accepted',
@@ -348,7 +372,21 @@ export function acceptTask(actor: User, taskId: number, now: number = Date.now()
     },
     now,
   );
-  return { ok: true };
+  return {
+    ok: true,
+    notify: [
+      {
+        // Whoever runs the board is the one who needs to know the work was
+        // picked up; the crew can see it on the board itself.
+        audience: { kind: 'admins', except: actor.id },
+        title: NOTIFY_HEADLINE['task.accepted'],
+        body: notifyBody(task.title, personDetail(actor.name, task.rewardCents)),
+        url: `/?task=${taskId}`,
+        tag: `task-${taskId}`,
+        event: 'task.accepted',
+      },
+    ],
+  };
 }
 
 /**
@@ -356,16 +394,16 @@ export function acceptTask(actor: User, taskId: number, now: number = Date.now()
  * else can pick it up, which is why the status returns to 'pending' rather than
  * resting at 'declined'.
  */
-export function declineTask(
+export async function declineTask(
   actor: User,
   taskId: number,
   reason: string,
   now: number = Date.now(),
-): MachineResult {
+): Promise<MachineResult> {
   const trimmed = clean(reason, REASON_MAX) || null;
-  const before = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  const before = await db.select().from(tasks).where(eq(tasks.id, taskId)).get();
 
-  const result = db
+  const result = await db
     .update(tasks)
     .set({
       assignedTo: null,
@@ -384,17 +422,17 @@ export function declineTask(
     )
     .run();
 
-  if (result.changes === 0) return explainMiss(taskId);
+  if (result.rowsAffected === 0) return await explainMiss(taskId);
 
-  logActivity(
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'task.declined',
       subjectType: 'task',
       subjectId: taskId,
       summary: trimmed
-        ? `${actor.name} passed on "${before?.title ?? 'a task'}" — ${trimmed}`
-        : `${actor.name} passed on "${before?.title ?? 'a task'}"`,
+        ? `${actor.name} passed on "${before?.title ?? 'a tasq'}" — ${trimmed}`
+        : `${actor.name} passed on "${before?.title ?? 'a tasq'}"`,
     },
     now,
   );
@@ -403,10 +441,11 @@ export function declineTask(
   if (before && before.createdBy !== actor.id) {
     notify.push({
       audience: { kind: 'user', userId: before.createdBy },
-      title: `${actor.name} passed on your task`,
-      body: trimmed ? `${before.title} — ${trimmed}` : `${before.title} — back up for grabs`,
+      title: NOTIFY_HEADLINE['task.declined'],
+      body: notifyBody(before.title, trimmed ? `${actor.name}: ${trimmed}` : `${actor.name} passed — back up for grabs`),
       url: `/?task=${taskId}`,
       tag: `task-${taskId}`,
+      event: 'task.declined',
     });
   }
   return { ok: true, notify };
@@ -419,8 +458,8 @@ export function declineTask(
  * of them reports a changed row. The loser changes nothing and is told who won.
  * Claiming *is* accepting, so this skips the pending step entirely.
  */
-export function claimTask(actor: User, taskId: number, now: number = Date.now()): MachineResult {
-  const result = db
+export async function claimTask(actor: User, taskId: number, now: number = Date.now()): Promise<MachineResult> {
+  const result = await db
     .update(tasks)
     .set({
       assignedTo: actor.id,
@@ -432,10 +471,10 @@ export function claimTask(actor: User, taskId: number, now: number = Date.now())
     .where(and(eq(tasks.id, taskId), isNull(tasks.assignedTo), eq(tasks.status, 'pending')))
     .run();
 
-  if (result.changes === 0) return explainMiss(taskId);
+  if (result.rowsAffected === 0) return await explainMiss(taskId);
 
-  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
-  logActivity(
+  const task = (await db.select().from(tasks).where(eq(tasks.id, taskId)).get())!;
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'task.claimed',
@@ -445,27 +484,39 @@ export function claimTask(actor: User, taskId: number, now: number = Date.now())
     },
     now,
   );
-  return { ok: true };
+  return {
+    ok: true,
+    notify: [
+      {
+        audience: { kind: 'admins', except: actor.id },
+        title: NOTIFY_HEADLINE['task.claimed'],
+        body: notifyBody(task.title, personDetail(actor.name, task.rewardCents)),
+        url: `/?task=${taskId}`,
+        tag: `task-${taskId}`,
+        event: 'task.claimed',
+      },
+    ],
+  };
 }
 
 /** Anyone can finish anything. No proof, no photo — the work is visible in the shop. */
-export function completeTask(
+export async function completeTask(
   actor: User,
   taskId: number,
   now: number = Date.now(),
-): MachineResult {
-  const result = db
+): Promise<MachineResult> {
+  const result = await db
     .update(tasks)
     .set({ status: 'done', completedAt: now, completedBy: actor.id, updatedAt: now })
     .where(and(eq(tasks.id, taskId), inArray(tasks.status, ['pending', 'accepted'])))
     .run();
 
-  if (result.changes === 0) return explainMiss(taskId);
+  if (result.rowsAffected === 0) return await explainMiss(taskId);
 
-  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+  const task = (await db.select().from(tasks).where(eq(tasks.id, taskId)).get())!;
   const owner =
-    task.assignedTo !== null && task.assignedTo !== actor.id ? nameOf(task.assignedTo) : null;
-  logActivity(
+    task.assignedTo !== null && task.assignedTo !== actor.id ? await nameOf(task.assignedTo) : null;
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'task.completed',
@@ -477,26 +528,43 @@ export function completeTask(
     },
     now,
   );
-  return { ok: true };
+  return {
+    ok: true,
+    notify: [
+      {
+        // What the board pays out is the admin's business, so the amount goes in
+        // the title where a phone shows it without being unlocked.
+        audience: { kind: 'admins', except: actor.id },
+        title: NOTIFY_HEADLINE['task.completed'],
+        body: notifyBody(
+          owner ? `${task.title} (${owner}'s)` : task.title,
+          personDetail(actor.name, task.rewardCents),
+        ),
+        url: `/?task=${taskId}`,
+        tag: `task-${taskId}`,
+        event: 'task.completed',
+      },
+    ],
+  };
 }
 
 /** The undo path out of Done Today, for the task someone ticked by mistake. */
-export function reopenTask(actor: User, taskId: number, now: number = Date.now()): MachineResult {
-  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+export async function reopenTask(actor: User, taskId: number, now: number = Date.now()): Promise<MachineResult> {
+  const task = await db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) return { ok: false, reason: 'gone' };
 
   // An owned task goes back to accepted; an unowned one returns to the pool.
   const restored = task.assignedTo === null ? 'pending' : 'accepted';
 
-  const result = db
+  const result = await db
     .update(tasks)
     .set({ status: restored, completedAt: null, completedBy: null, updatedAt: now })
     .where(and(eq(tasks.id, taskId), eq(tasks.status, 'done')))
     .run();
 
-  if (result.changes === 0) return explainMiss(taskId);
+  if (result.rowsAffected === 0) return await explainMiss(taskId);
 
-  logActivity(
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'task.reopened',
@@ -510,27 +578,27 @@ export function reopenTask(actor: User, taskId: number, now: number = Date.now()
 }
 
 /** Soft delete, by the creator or an admin. Tasks are never removed from the file. */
-export function cancelTask(actor: User, taskId: number, now: number = Date.now()): MachineResult {
-  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+export async function cancelTask(actor: User, taskId: number, now: number = Date.now()): Promise<MachineResult> {
+  const task = await db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) return { ok: false, reason: 'gone' };
   if (task.createdBy !== actor.id && !actor.isAdmin) {
     return {
       ok: false,
       reason: 'invalid',
       code: 'TASQ-E0210',
-      message: `Only ${nameOf(task.createdBy)} or an admin can cancel that.`,
+      message: `Only ${await nameOf(task.createdBy)} or an admin can cancel that.`,
     };
   }
 
-  const result = db
+  const result = await db
     .update(tasks)
     .set({ status: 'cancelled', updatedAt: now })
     .where(and(eq(tasks.id, taskId), inArray(tasks.status, ['pending', 'accepted'])))
     .run();
 
-  if (result.changes === 0) return explainMiss(taskId);
+  if (result.rowsAffected === 0) return await explainMiss(taskId);
 
-  logActivity(
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'task.cancelled',

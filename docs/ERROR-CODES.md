@@ -29,7 +29,7 @@ from Tasq — something else on the Mac is talking.
 | TASQ-E0202 | Task was cancelled. | It is off the board; pull down to refresh. |
 | TASQ-E0203 | Task already done. | Tap the next thing. |
 | TASQ-E0204 | Someone claimed it first. | First come first served — it is theirs now. |
-| TASQ-E0205 | Only admins add tasks. | Tell the owner what needs doing; they post it. |
+| TASQ-E0205 | Retired. | Crew can now post tasqs; only rewards remain admin-only. |
 | TASQ-E0206 | Task needs a title. | Type what needs doing, in plain words. |
 | TASQ-E0207 | Assigned person left the board. | Admin: edit the task and pick someone else, or set it to Anyone. |
 | TASQ-E0208 | The due time did not parse. | Re-pick the date and time from the picker. |

@@ -229,7 +229,7 @@ export function NewTaskForm({
           onChange={setTiming}
           options={[
             { value: 'whenever', label: 'Whenever', hint: 'No deadline — it sits on the board until someone does it.' },
-            { value: 'due', label: 'By a time', hint: 'Overdue tasks turn red and nudge whoever owns them.' },
+            { value: 'due', label: 'By a time', hint: 'Overdue tasqs turn red and nudge whoever owns them.' },
             { value: 'repeats', label: 'Repeats', hint: 'Spawns a fresh copy on a schedule, like Monday greasing.' },
           ]}
         />
@@ -279,7 +279,7 @@ export function NewTaskForm({
       <div className="material-card mt-5 rounded-[var(--radius-card)] p-4">
         <CheckRow
           label="ASAP"
-          hint="Shows on the shared ASAP row for everyone, whoever it belongs to."
+          hint="Marks it urgent for everyone who can see this board."
           checked={isAsap}
           onChange={setIsAsap}
         />
@@ -320,7 +320,7 @@ export function NewTaskForm({
           className="type-headline pointer-events-auto w-full max-w-lg"
           style={{ boxShadow: 'var(--shadow-sheet)' }}
         >
-          {pending ? 'Adding…' : timing === 'repeats' ? 'Add repeating task' : 'Add to the board'}
+          {pending ? 'Adding…' : timing === 'repeats' ? 'Add repeating tasq' : 'Add to the board'}
         </Button>
       </div>
     </form>

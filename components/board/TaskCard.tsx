@@ -29,8 +29,6 @@ const ACTION_TONE: Record<CardAction, 'primary' | 'secondary' | 'quiet'> = {
 export interface TaskCardProps {
   task: BoardTask;
   viewerId: number;
-  /** ASAP cards are wider and warmer — this row is read first, at 6am. */
-  emphasis?: boolean;
   muted?: boolean;
   busy: boolean;
   now: number;
@@ -43,7 +41,6 @@ export interface TaskCardProps {
 function TaskCardImpl({
   task,
   viewerId,
-  emphasis = false,
   muted = false,
   busy,
   now,
@@ -56,25 +53,22 @@ function TaskCardImpl({
   const needsYou = task.assignedTo === viewerId && task.status === 'pending';
   const { pressed, handlers } = usePress(() => onOpen(task.id));
 
-  const borderColor = emphasis
-    ? 'color-mix(in srgb, var(--asap) 40%, transparent)'
-    : needsYou
-      ? 'color-mix(in srgb, var(--accent) 38%, transparent)'
-      : 'var(--hairline)';
+  const borderColor = needsYou
+    ? 'color-mix(in srgb, var(--accent) 38%, transparent)'
+    : 'var(--hairline)';
 
   return (
     <motion.article
-      // `layout` only — deliberately no layoutId. The same task legitimately
-      // appears in more than one row (an ASAP task assigned to you shows in both
-      // ASAP and Your Tasks), and a shared layoutId would make Motion treat the
-      // two cards as one element and blank whichever it did not pick.
+      // `layout` lets cards glide within a rail when their status changes.
+      // My Day already gives each task one section, so no cross-row layoutId is
+      // needed and a refresh can never make two cards animate as one.
       layout
       transition={SPRING_ENTER}
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: muted ? 0.62 : 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.96 }}
       className="relative shrink-0 snap-start"
-      style={{ width: emphasis ? 296 : 264 }}
+      style={{ width: 264 }}
     >
       {/* The press scale lives on this inner surface, not on the article:
           Motion's layout animation owns the article's transform. */}
@@ -83,9 +77,7 @@ function TaskCardImpl({
         data-pressed={pressed ? '' : undefined}
         style={{
           borderColor,
-          background: emphasis
-            ? 'color-mix(in srgb, var(--asap) 9%, var(--surface))'
-            : 'var(--surface)',
+          background: 'var(--surface)',
         }}
       >
         {/* The whole card opens the sheet; the action buttons sit above it. */}

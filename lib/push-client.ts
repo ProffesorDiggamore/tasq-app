@@ -7,6 +7,12 @@ export type PushState =
   | 'insecure'
   | 'needs-install'
   | 'not-configured'
+  /**
+   * This browser's push endpoint already belongs to someone else on the board —
+   * the person who first turned notifications on here. The server refuses to
+   * re-point it, because doing so would silently steal their notifications.
+   */
+  | 'claimed-by-someone-else'
   | 'default'
   | 'granted'
   | 'denied';
@@ -46,6 +52,27 @@ export async function currentPushState(isIOS: boolean, isStandalone: boolean): P
   return Notification.permission as PushState;
 }
 
+/**
+ * Whether a subscription the browser is already holding was minted against the
+ * key this server now signs with.
+ *
+ * A subscription outlives the keys: regenerate the pair (a wiped database, a
+ * deployment that later sets VAPID_PUBLIC_KEY) and the browser happily hands
+ * back the old one, which every push service then refuses with a 403 forever.
+ * Reused blindly, that looks exactly like "notifications silently stopped".
+ *
+ * A browser that will not tell us which key it used is treated as a match: an
+ * unknown key is not a wrong one, and churning a working subscription on every
+ * visit costs more than the rare stale one, which the server now names in its
+ * 403 log.
+ */
+function mintedWithCurrentKey(subscription: PushSubscription, key: Uint8Array): boolean {
+  const applied = subscription.options?.applicationServerKey;
+  if (!applied) return true;
+  const bytes = new Uint8Array(applied);
+  return bytes.length === key.length && bytes.every((b, i) => b === key[i]);
+}
+
 /** Ask, subscribe, and hand the subscription to the server. */
 export async function enablePush(): Promise<PushState> {
   const key = await serverKey();
@@ -55,20 +82,40 @@ export async function enablePush(): Promise<PushState> {
   if (permission !== 'granted') return permission as PushState;
 
   const registration = await navigator.serviceWorker.ready;
-  const existing = await registration.pushManager.getSubscription();
+  const keyBytes = urlBase64ToUint8Array(key);
+  let existing = await registration.pushManager.getSubscription();
+  if (existing && !mintedWithCurrentKey(existing, keyBytes)) {
+    // Drop the server's row too: nothing will ever be delivered through it, and
+    // waiting for a 404/410 to clean it up means every send carries a dead push.
+    await fetch('/api/push', {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: existing.endpoint }),
+    });
+    await existing.unsubscribe();
+    existing = null;
+  }
   const subscription =
     existing ??
     (await registration.pushManager.subscribe({
       // Chrome refuses a subscription that is not user-visible.
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(key) as BufferSource,
+      applicationServerKey: keyBytes as BufferSource,
     }));
 
-  await fetch('/api/push', {
+  const stored = await fetch('/api/push', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(subscription.toJSON()),
   });
+
+  // The answer used to be thrown away, so a refusal looked exactly like success:
+  // the screen said "On for this device" and nothing ever arrived. The browser
+  // subscription is deliberately left alone — it belongs to whoever registered
+  // it first, and unsubscribing here would take their notifications with it.
+  if (!stored.ok) {
+    return stored.status === 403 ? 'claimed-by-someone-else' : 'not-configured';
+  }
 
   return 'granted';
 }
@@ -82,16 +129,29 @@ export async function disablePush(): Promise<void> {
   const registration = await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.getSubscription();
   if (!subscription) return;
-  await fetch('/api/push', {
+  const removed = await fetch('/api/push', {
     method: 'DELETE',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ endpoint: subscription.endpoint }),
   });
-  await subscription.unsubscribe();
+  // A refusal means the row is someone else's on a shared device. Unsubscribing
+  // the browser anyway would silently switch off THEIR notifications.
+  if (removed.ok) await subscription.unsubscribe();
 }
 
+/**
+ * Whether this browser's subscription delivers to the person signed in now —
+ * not merely whether the browser holds one, which on a shared tablet is usually
+ * somebody else's.
+ */
 export async function hasSubscription(): Promise<boolean> {
   if (!('serviceWorker' in navigator)) return false;
   const registration = await navigator.serviceWorker.ready;
-  return (await registration.pushManager.getSubscription()) !== null;
+  const subscription = await registration.pushManager.getSubscription();
+  if (!subscription) return false;
+  const response = await fetch(`/api/push?endpoint=${encodeURIComponent(subscription.endpoint)}`, {
+    cache: 'no-store',
+  });
+  if (!response.ok) return false;
+  return ((await response.json()) as { mine?: boolean }).mine === true;
 }

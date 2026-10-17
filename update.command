@@ -105,9 +105,14 @@ rsync -a \
   "$APP_DIR/" "$BK/code/"
 echo "  backup: $BK"
 
-# Prune old pre-update backups, newest five survive.
+# Keep the newest five beside the app. Older ones go to the Mac's Trash rather
+# than being permanently deleted, so a customer can still recover one if a
+# problem is discovered several releases later.
 ls -dt "$APP_DIR"/data-backups/pre-update-* 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | while IFS= read -r old; do
-  rm -rf "$old"
+  mkdir -p "$HOME/.Trash"
+  trash="$HOME/.Trash/Tasq-$(basename "$old")"
+  [ -e "$trash" ] && trash="$trash-$(date '+%Y%m%d%H%M%S')"
+  mv "$old" "$trash" 2>/dev/null || true
 done
 
 echo "Looking for the update..."

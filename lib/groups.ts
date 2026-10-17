@@ -23,8 +23,8 @@ function cleanName(raw: string): string {
 }
 
 /** Every live group, in tab order. */
-export function listGroups(): Group[] {
-  return db
+export async function listGroups(): Promise<Group[]> {
+  return await db
     .select()
     .from(groups)
     .where(isNull(groups.archivedAt))
@@ -32,27 +32,27 @@ export function listGroups(): Group[] {
     .all();
 }
 
-export function getGroup(groupId: number): Group | undefined {
-  return db.select().from(groups).where(eq(groups.id, groupId)).get();
+export async function getGroup(groupId: number): Promise<Group | undefined> {
+  return await db.select().from(groups).where(eq(groups.id, groupId)).get();
 }
 
-export function listGroupMemberIds(groupId: number): number[] {
-  return db
+export async function listGroupMemberIds(groupId: number): Promise<number[]> {
+  return (await db
     .select({ userId: groupMembers.userId })
     .from(groupMembers)
     .where(eq(groupMembers.groupId, groupId))
-    .all()
+    .all())
     .map((r) => r.userId);
 }
 
 /** Group ids this person belongs to. Admins are not listed here — see below. */
-export function groupIdsForUser(userId: number): number[] {
-  return db
+export async function groupIdsForUser(userId: number): Promise<number[]> {
+  return (await db
     .select({ groupId: groupMembers.groupId })
     .from(groupMembers)
     .innerJoin(groups, eq(groups.id, groupMembers.groupId))
     .where(and(eq(groupMembers.userId, userId), isNull(groups.archivedAt)))
-    .all()
+    .all())
     .map((r) => r.groupId);
 }
 
@@ -60,13 +60,13 @@ export function groupIdsForUser(userId: number): number[] {
  * An admin runs the board, so every tab is theirs. Everyone else sees the tabs
  * they were put in — which is what makes a group a group rather than a label.
  */
-export function canUseGroup(user: User, groupId: number | null): boolean {
+export async function canUseGroup(user: User, groupId: number | null): Promise<boolean> {
   if (groupId === null) return true;
-  const group = getGroup(groupId);
+  const group = await getGroup(groupId);
   if (!group || group.archivedAt !== null) return false;
   if (user.isAdmin) return true;
   return (
-    db
+    await db
       .select({ userId: groupMembers.userId })
       .from(groupMembers)
       .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, user.id)))
@@ -75,20 +75,20 @@ export function canUseGroup(user: User, groupId: number | null): boolean {
 }
 
 /** The tab strip, as the board needs it: the shared tab first, then theirs. */
-export function tabsForUser(user: User): GroupTab[] {
-  const all = listGroups();
+export async function tabsForUser(user: User): Promise<GroupTab[]> {
+  const all = await listGroups();
   const visible = user.isAdmin
     ? all
-    : (() => {
-        const mine = new Set(groupIdsForUser(user.id));
+    : await (async () => {
+        const mine = new Set(await groupIdsForUser(user.id));
         return all.filter((g) => mine.has(g.id));
       })();
   return visible.map((g) => ({ id: g.id, name: g.name }));
 }
 
 /** Member counts for the whole list in one pass, for the Settings card. */
-export function memberCounts(): Map<number, number> {
-  const rows = db
+export async function memberCounts(): Promise<Map<number, number>> {
+  const rows = await db
     .select({ groupId: groupMembers.groupId, n: sql<number>`count(*)` })
     .from(groupMembers)
     .groupBy(groupMembers.groupId)
@@ -96,20 +96,20 @@ export function memberCounts(): Map<number, number> {
   return new Map(rows.map((r) => [r.groupId, r.n]));
 }
 
-export function createGroup(actor: User, rawName: string, now: number = Date.now()): ActionResult & {
+export async function createGroup(actor: User, rawName: string, now: number = Date.now()): Promise<ActionResult & {
   groupId?: number;
-} {
+}> {
   const name = cleanName(rawName);
   if (name.length < 2) return fail('A tab name needs at least two characters.');
   if (name.toLowerCase() === 'tasqs') return fail('Tasqs is the shared tab — pick another name.');
 
-  const existing = db.select().from(groups).where(eq(groups.name, name)).get();
+  const existing = await db.select().from(groups).where(eq(groups.name, name)).get();
   if (existing) {
     // Names are unique across archived groups too, so reviving is friendlier
     // than refusing — and it keeps the old tab's tasks attached to it.
     if (existing.archivedAt !== null) {
-      db.update(groups).set({ archivedAt: null }).where(eq(groups.id, existing.id)).run();
-      logActivity({
+      await db.update(groups).set({ archivedAt: null }).where(eq(groups.id, existing.id)).run();
+      await logActivity({
         actorId: actor.id,
         verb: 'group.created',
         subjectType: 'group',
@@ -121,12 +121,12 @@ export function createGroup(actor: User, rawName: string, now: number = Date.now
     return fail(`There is already a ${name} tab.`);
   }
 
-  const last = db
+  const last = await db
     .select({ n: sql<number>`coalesce(max(${groups.sortOrder}), -1)` })
     .from(groups)
     .get();
 
-  const created = db
+  const created = await db
     .insert(groups)
     .values({
       name,
@@ -137,7 +137,7 @@ export function createGroup(actor: User, rawName: string, now: number = Date.now
     .returning({ id: groups.id })
     .get();
 
-  logActivity({
+  await logActivity({
     actorId: actor.id,
     verb: 'group.created',
     subjectType: 'group',
@@ -148,8 +148,8 @@ export function createGroup(actor: User, rawName: string, now: number = Date.now
   return { ...ok, groupId: created.id };
 }
 
-export function renameGroup(actor: User, groupId: number, rawName: string, now: number = Date.now()): ActionResult {
-  const group = getGroup(groupId);
+export async function renameGroup(actor: User, groupId: number, rawName: string, now: number = Date.now()): Promise<ActionResult> {
+  const group = await getGroup(groupId);
   if (!group || group.archivedAt !== null) return fail('That tab is gone.');
 
   const name = cleanName(rawName);
@@ -157,11 +157,11 @@ export function renameGroup(actor: User, groupId: number, rawName: string, now: 
   if (name === group.name) return ok;
   if (name.toLowerCase() === 'tasqs') return fail('Tasqs is the shared tab — pick another name.');
 
-  const clash = db.select().from(groups).where(eq(groups.name, name)).get();
+  const clash = await db.select().from(groups).where(eq(groups.name, name)).get();
   if (clash) return fail(`There is already a ${name} tab.`);
 
-  db.update(groups).set({ name }).where(eq(groups.id, groupId)).run();
-  logActivity({
+  await db.update(groups).set({ name }).where(eq(groups.id, groupId)).run();
+  await logActivity({
     actorId: actor.id,
     verb: 'group.updated',
     subjectType: 'group',
@@ -175,12 +175,12 @@ export function renameGroup(actor: User, groupId: number, rawName: string, now: 
  * Soft delete. The tab leaves the board; the tasks that were on it keep their
  * `groupId` and stay in History, exactly like an archived person's work.
  */
-export function archiveGroup(actor: User, groupId: number, now: number = Date.now()): ActionResult {
-  const group = getGroup(groupId);
+export async function archiveGroup(actor: User, groupId: number, now: number = Date.now()): Promise<ActionResult> {
+  const group = await getGroup(groupId);
   if (!group || group.archivedAt !== null) return fail('That tab is gone.');
 
-  db.update(groups).set({ archivedAt: now }).where(eq(groups.id, groupId)).run();
-  logActivity({
+  await db.update(groups).set({ archivedAt: now }).where(eq(groups.id, groupId)).run();
+  await logActivity({
     actorId: actor.id,
     verb: 'group.archived',
     subjectType: 'group',
@@ -191,32 +191,32 @@ export function archiveGroup(actor: User, groupId: number, now: number = Date.no
 }
 
 /** Replaces the whole membership in one go — the UI edits it as a set. */
-export function setGroupMembers(
+export async function setGroupMembers(
   actor: User,
   groupId: number,
   userIds: number[],
   now: number = Date.now(),
-): ActionResult {
-  const group = getGroup(groupId);
+): Promise<ActionResult> {
+  const group = await getGroup(groupId);
   if (!group || group.archivedAt !== null) return fail('That tab is gone.');
 
   const wanted = [...new Set(userIds)];
   const real =
     wanted.length === 0
       ? []
-      : db
+      : (await db
           .select({ id: users.id })
           .from(users)
           .where(and(inArray(users.id, wanted), isNull(users.archivedAt)))
-          .all()
+          .all())
           .map((r) => r.id);
 
-  db.delete(groupMembers).where(eq(groupMembers.groupId, groupId)).run();
+  await db.delete(groupMembers).where(eq(groupMembers.groupId, groupId)).run();
   for (const userId of real) {
-    db.insert(groupMembers).values({ groupId, userId, addedAt: now }).run();
+    await db.insert(groupMembers).values({ groupId, userId, addedAt: now }).run();
   }
 
-  logActivity({
+  await logActivity({
     actorId: actor.id,
     verb: 'group.updated',
     subjectType: 'group',

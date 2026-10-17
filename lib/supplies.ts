@@ -5,6 +5,12 @@ import { supplyRequests, users, type SupplyStatus, type User } from '@/lib/db/sc
 import { logActivity } from '@/lib/activity';
 import { fail, ok, type ActionResult } from '@/lib/action-result';
 import type { NotifyIntent, SupplyRow, SupplyQueue } from '@/lib/board-types';
+import {
+  NOTIFY_HEADLINE,
+  SUPPLY_ARRIVED_HEADLINE,
+  SUPPLY_ORDERED_HEADLINE,
+  notifyBody,
+} from '@/lib/notify-copy';
 
 export type SupplyResult = ActionResult & { notify?: NotifyIntent[] };
 
@@ -38,15 +44,15 @@ function base() {
     .innerJoin(users, eq(users.id, supplyRequests.requestedBy));
 }
 
-export function createSupplyRequest(
+export async function createSupplyRequest(
   actor: User,
   input: { item: string; quantity: string; notes: string },
   now: number = Date.now(),
-): SupplyResult & { requestId?: number } {
+): Promise<SupplyResult & { requestId?: number }> {
   const item = clean(input.item, ITEM_MAX);
   if (item.length === 0) return fail('What do you need?');
 
-  const created = db
+  const created = await db
     .insert(supplyRequests)
     .values({
       item,
@@ -59,7 +65,7 @@ export function createSupplyRequest(
     .returning({ id: supplyRequests.id })
     .get();
 
-  logActivity(
+  await logActivity(
     {
       actorId: actor.id,
       verb: 'supply.created',
@@ -76,11 +82,15 @@ export function createSupplyRequest(
     notify: [
       {
         // Only admins see the queue, so only admins are told about it.
-        audience: { kind: 'admins' },
-        title: 'Supply request',
-        body: `${item}${input.quantity.trim() ? ` (${clean(input.quantity, QTY_MAX)})` : ''} — ${actor.name}`,
+        audience: { kind: 'admins', except: actor.id },
+        title: NOTIFY_HEADLINE['supply.requested'],
+        body: notifyBody(
+          item,
+          `${input.quantity.trim() ? `${clean(input.quantity, QTY_MAX)} · ` : ''}asked by ${actor.name}`,
+        ),
         url: '/supplies',
         tag: `supply-${created.id}`,
+        event: 'supply.requested',
       },
     ],
   };
@@ -90,15 +100,15 @@ export function createSupplyRequest(
  * Moves a request one step along. Guarded on the status it expects to find, so
  * two admins tapping at once cannot skip a step or double-stamp a timestamp.
  */
-export function advanceSupplyRequest(
+export async function advanceSupplyRequest(
   actor: User,
   requestId: number,
   to: SupplyStatus,
   now: number = Date.now(),
-): SupplyResult {
+): Promise<SupplyResult> {
   if (!actor.isAdmin) return fail('Only an admin can move a request along.');
 
-  const current = db
+  const current = await db
     .select()
     .from(supplyRequests)
     .where(eq(supplyRequests.id, requestId))
@@ -119,21 +129,21 @@ export function advanceSupplyRequest(
   if (to === 'requested') stamps.orderedAt = null;
   if (to === 'ordered') stamps.receivedAt = null;
 
-  const result = db
+  const result = await db
     .update(supplyRequests)
     .set({ status: to, ...stamps })
     .where(and(eq(supplyRequests.id, requestId), eq(supplyRequests.status, current.status)))
     .run();
-  if (result.changes === 0) return fail('Someone else just moved that one.');
+  if (result.rowsAffected === 0) return fail('Someone else just moved that one.');
 
   const requester =
-    db
+    (await db
       .select({ name: users.name })
       .from(users)
       .where(eq(users.id, current.requestedBy))
-      .get()?.name ?? 'someone';
+      .get())?.name ?? 'someone';
 
-  logActivity(
+  await logActivity(
     {
       actorId: actor.id,
       verb: to === 'ordered' ? 'supply.ordered' : to === 'received' ? 'supply.received' : 'supply.created',
@@ -150,18 +160,19 @@ export function advanceSupplyRequest(
   if ((to === 'ordered' || to === 'received') && current.requestedBy !== actor.id) {
     notify.push({
       audience: { kind: 'user', userId: current.requestedBy },
-      title: to === 'ordered' ? 'On order' : 'Arrived',
-      body: to === 'ordered' ? `${current.item} has been ordered` : `${current.item} is in`,
+      title: to === 'ordered' ? SUPPLY_ORDERED_HEADLINE : SUPPLY_ARRIVED_HEADLINE,
+      body: notifyBody(current.item, to === 'ordered' ? 'On order now' : "It's in"),
       url: '/supplies',
       tag: `supply-${requestId}`,
+      event: 'supply.moved',
     });
   }
 
   return { ...ok, notify };
 }
 
-export function myRequests(userId: number): SupplyRow[] {
-  return base()
+export async function myRequests(userId: number): Promise<SupplyRow[]> {
+  return await base()
     .where(eq(supplyRequests.requestedBy, userId))
     .orderBy(desc(supplyRequests.createdAt))
     .all();
@@ -171,8 +182,8 @@ export function myRequests(userId: number): SupplyRow[] {
  * The whole queue, grouped by status with the oldest outstanding request at the
  * top — Chris reads this as a shopping list, so what has waited longest leads.
  */
-export function supplyQueue(): SupplyQueue {
-  const rows = base().orderBy(asc(supplyRequests.createdAt)).all();
+export async function supplyQueue(): Promise<SupplyQueue> {
+  const rows = await base().orderBy(asc(supplyRequests.createdAt)).all();
   return {
     requested: rows.filter((r) => r.status === 'requested'),
     ordered: rows.filter((r) => r.status === 'ordered'),
@@ -182,10 +193,10 @@ export function supplyQueue(): SupplyQueue {
 }
 
 /** Badge on the board row: how many are still waiting to be ordered. */
-export function outstandingSupplyCount(): number {
-  return db
+export async function outstandingSupplyCount(): Promise<number> {
+  return (await db
     .select({ id: supplyRequests.id })
     .from(supplyRequests)
     .where(eq(supplyRequests.status, 'requested'))
-    .all().length;
+    .all()).length;
 }

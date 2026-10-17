@@ -1,0 +1,36 @@
+name: Customer release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build customer update
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir Tasq-update
+          rsync -a ./ Tasq-update/ \
+            --exclude /.git --exclude /.github --exclude /node_modules \
+            --exclude /.next --exclude /data --exclude /backups \
+            --exclude /data-backups --exclude /logs --exclude /.env.local \
+            --exclude /.claude --exclude /.claude-flow --exclude /.mimosa \
+            --exclude /AGENTS.md --exclude /CLAUDE.md \
+            --exclude /billing --exclude /skill-observations \
+            --exclude /tsconfig.tsbuildinfo --exclude /Tasq-update
+          printf '%s\n' "${RELEASE_TAG#v}" > Tasq-update/VERSION
+          chmod +x Tasq-update/*.command Tasq-update/setup/*.sh Tasq-update/Tasq.app/Contents/MacOS/Tasq
+          ditto -c -k --sequesterRsrc --keepParent Tasq-update Tasq-update.zip
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" Tasq-update.zip --generate-notes --title "Tasq $GITHUB_REF_NAME"

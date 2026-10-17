@@ -17,14 +17,14 @@ import { SPRING_SHEET } from '@/lib/motion';
 type Stage = 'code' | 'details' | 'pin' | 'confirm' | 'done';
 
 /**
- * First-run activation: the one-time code, the business name, the first admin
- * and their PIN. Four short screens; the board is empty until this finishes.
+ * First-run activation: the one-time code, the first admin, and their PIN.
+ * The board is empty until this finishes. There is no "name your board" step —
+ * every board is called Tasq (see lib/settings.ts).
  */
 export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' }) {
   const router = useRouter();
   const [stage, setStage] = useState<Stage>('code');
   const [code, setCode] = useState('');
-  const [orgName, setOrgName] = useState('');
   const [adminName, setAdminName] = useState('');
   const [firstPin, setFirstPin] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +73,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
       }
 
       startTransition(async () => {
-        const result = await completeSetupAction(code, orgName, adminName, firstPin, pin);
+        const result = await completeSetupAction(code, adminName, firstPin, pin);
         if (result.ok) {
           haptic('commit');
           // Signed in server-side. Hold on a checkmark for a beat so it is
@@ -87,7 +87,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
         fail(result.message);
       });
     },
-    [stage, code, orgName, adminName, firstPin, router, fail, mode],
+    [stage, code, adminName, firstPin, router, fail, mode],
   );
 
   // The done-stage hold before navigating. Kept in an effect so leaving the
@@ -167,33 +167,10 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
             <p className="type-callout mt-2 text-center text-[var(--text-secondary)]">
               {mode === 'recovery'
                 ? 'Who is the new admin? You become one when this finishes.'
-                : 'Name the board, then tell us who you are. You become the first admin.'}
+                : 'Tell us who you are. You become the first admin.'}
             </p>
 
-            {mode === 'initial' ? (
-              <>
-                <label className="type-label mt-8 block px-1 text-[var(--text-tertiary)]">
-                  Business or team name
-                </label>
-                <input
-                  value={orgName}
-                  onChange={(e) => setOrgName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') submitDetails();
-                  }}
-                  maxLength={60}
-                  autoComplete="organization"
-                  placeholder="Gold Standard Detailing"
-                  aria-label="Business or team name"
-                  className="material-card mt-2 w-full rounded-[var(--radius-control)] px-4 py-3.5 text-lg outline-none"
-                  style={{ color: 'var(--text)' }}
-                />
-              </>
-            ) : null}
-
-            <label
-              className={`${mode === 'initial' ? 'mt-4' : 'mt-8'} type-label block px-1 text-[var(--text-tertiary)]`}
-            >
+            <label className="type-label mt-8 block px-1 text-[var(--text-tertiary)]">
               Your name
             </label>
             <input
@@ -246,7 +223,7 @@ export function SetupFlow({ mode = 'initial' }: { mode?: 'initial' | 'recovery' 
           >
             <SuccessCheck size={84} label="Board ready" />
             <h1 className="type-title mt-5">
-              {mode === 'recovery' ? "You're an admin now" : `${orgName.trim() || 'Your board'} is ready`}
+              {mode === 'recovery' ? "You're an admin now" : 'Your board is ready'}
             </h1>
             <p className="type-callout mt-2 text-[var(--text-secondary)]">
               {mode === 'recovery' ? 'Opening Settings…' : 'Starting a quick tour…'}

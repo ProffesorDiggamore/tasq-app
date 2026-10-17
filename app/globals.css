@@ -337,6 +337,16 @@
     display: none;
   }
 
+  /* A rail whose contents sit centred while they fit, and scroll from the
+     start once they do not. `safe` is what makes that one declaration instead
+     of two: plain `center` on an overflowing scroller pushes the first item
+     off the scrollable origin, so on a phone with six group tabs the first
+     tab can never be reached. `safe` falls back to flex-start exactly when
+     overflow would clip. */
+  .rail-center {
+    justify-content: safe center;
+  }
+
   /* ------------------------------------------------------------------------
      Page enter
      ---------------------------------------------------------------------- */

@@ -58,7 +58,7 @@ function baseQuery() {
     .leftJoin(taskPhotos, eq(taskPhotos.taskId, tasks.id));
 }
 
-type Row = ReturnType<typeof baseQuery> extends { all(): (infer R)[] } ? R : never;
+type Row = Awaited<ReturnType<ReturnType<typeof baseQuery>['all']>>[number];
 
 function toBoardTask(row: Row): BoardTask {
   return {
@@ -93,45 +93,49 @@ function toBoardTask(row: Row): BoardTask {
 const byDueThenAge = sql`${tasks.dueAt} is null, ${tasks.dueAt} asc, ${tasks.createdAt} asc`;
 
 /** Everything time-critical, shared by everyone, whoever it belongs to. */
-export function asapTasks(groupId: number | null = null): BoardTask[] {
-  return baseQuery()
+export async function asapTasks(groupId: number | null = null): Promise<BoardTask[]> {
+  return (
+    await baseQuery()
     .where(
       and(inGroup(groupId), eq(tasks.isAsap, true), inArray(tasks.status, [...OPEN_STATUSES])),
     )
     .orderBy(byDueThenAge)
     .all()
-    .map(toBoardTask);
+  ).map(toBoardTask);
 }
 
 /**
  * Yours, with anything still waiting on an Accept at the front — that is the
  * only thing on this row that needs a decision rather than work.
  */
-export function myTasks(userId: number, groupId: number | null = null): BoardTask[] {
-  return baseQuery()
+export async function myTasks(userId: number, groupId: number | null = null): Promise<BoardTask[]> {
+  return (
+    await baseQuery()
     .where(
       and(inGroup(groupId), eq(tasks.assignedTo, userId), inArray(tasks.status, [...OPEN_STATUSES])),
     )
     .orderBy(sql`${tasks.status} = 'accepted', ${byDueThenAge}`)
     .all()
-    .map(toBoardTask);
+  ).map(toBoardTask);
 }
 
 /** The open pool. First person to claim one wins. */
-export function upForGrabs(groupId: number | null = null): BoardTask[] {
-  return baseQuery()
+export async function upForGrabs(groupId: number | null = null): Promise<BoardTask[]> {
+  return (
+    await baseQuery()
     .where(and(inGroup(groupId), isNull(tasks.assignedTo), eq(tasks.status, 'pending')))
     .orderBy(byDueThenAge)
     .all()
-    .map(toBoardTask);
+  ).map(toBoardTask);
 }
 
 /** Instances the scheduler spawned since the board last cleared. */
-export function todaysRecurring(
+export async function todaysRecurring(
   now: number = Date.now(),
   groupId: number | null = null,
-): BoardTask[] {
-  return baseQuery()
+): Promise<BoardTask[]> {
+  return (
+    await baseQuery()
     .where(
       and(
         inGroup(groupId),
@@ -142,15 +146,16 @@ export function todaysRecurring(
     )
     .orderBy(byDueThenAge)
     .all()
-    .map(toBoardTask);
+  ).map(toBoardTask);
 }
 
 /**
  * Finished since the last 3am reset. These age off the board on their own — the
  * query moves on, nothing is deleted, and History keeps them forever.
  */
-export function doneToday(now: number = Date.now(), groupId: number | null = null): BoardTask[] {
-  return baseQuery()
+export async function doneToday(now: number = Date.now(), groupId: number | null = null): Promise<BoardTask[]> {
+  return (
+    await baseQuery()
     .where(
       and(
         inGroup(groupId),
@@ -160,29 +165,36 @@ export function doneToday(now: number = Date.now(), groupId: number | null = nul
     )
     .orderBy(sql`${tasks.completedAt} desc`)
     .all()
-    .map(toBoardTask);
+  ).map(toBoardTask);
 }
 
-export function getBoardTask(taskId: number): BoardTask | undefined {
-  const row = baseQuery().where(eq(tasks.id, taskId)).get();
+export async function getBoardTask(taskId: number): Promise<BoardTask | undefined> {
+  const row = await baseQuery().where(eq(tasks.id, taskId)).get();
   return row ? toBoardTask(row) : undefined;
 }
 
 /** One pass over one tab of the board for the home screen. */
-export function loadBoard(
+export async function loadBoard(
   userId: number,
   now: number = Date.now(),
   groupId: number | null = null,
-): BoardData {
-  const asap = asapTasks(groupId);
-  const mine = myTasks(userId, groupId);
+): Promise<BoardData> {
+  // Five independent reads: in parallel, since each one is a network round trip
+  // when the data lives in Turso.
+  const [asap, mine, pool, recurring, done] = await Promise.all([
+    asapTasks(groupId),
+    myTasks(userId, groupId),
+    upForGrabs(groupId),
+    todaysRecurring(now, groupId),
+    doneToday(now, groupId),
+  ]);
   return {
     groupId,
     asap,
     mine,
-    pool: upForGrabs(groupId),
-    recurring: todaysRecurring(now, groupId),
-    done: doneToday(now, groupId),
+    pool,
+    recurring,
+    done,
     // Badges have to work for anyone who declines notifications, so they count
     // the two things a person would otherwise only learn from a push.
     asapCount: asap.length,

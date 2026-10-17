@@ -1,0 +1,18 @@
+# Hosting Tasq on Netlify, with the data in Turso. The shop-Mac way
+# (start.command) does not read this file and still works without it.
+#
+# Set these in Netlify → Site configuration → Environment variables (they are
+# secrets, so they do not belong in this file):
+#   TURSO_DATABASE_URL   libsql://… from the Turso dashboard
+#   TURSO_AUTH_TOKEN     the database token from the Turso dashboard
+#   SESSION_SECRET       any random string of 32+ characters
+
+[build]
+  # Migrate the database and print the first-time setup code, then build.
+  command = "npm run build:netlify"
+  publish = ".next"
+
+[build.environment]
+  # Open boards refresh every 60s instead of 30s — the free plan's monthly
+  # allowance is spent per request.
+  NEXT_PUBLIC_TASQ_POLL_SECONDS = "60"

@@ -32,8 +32,8 @@ async function settle(result: machine.MachineResult): Promise<TaskActionResult> 
 
 export async function createTaskAction(input: NewTaskInput): Promise<TaskActionResult> {
   const me = await requireUser();
-  const { taskId: _taskId, ...result } = machine.createTask(me, input);
-  return settle(result);
+  const { taskId: _taskId, ...result } = await machine.createTask(me, input);
+  return await settle(result);
 }
 
 export async function updateTaskAction(
@@ -41,43 +41,43 @@ export async function updateTaskAction(
   input: NewTaskInput,
 ): Promise<TaskActionResult> {
   const me = await requireUser();
-  return settle(machine.updateTask(me, taskId, input));
+  return await settle(await machine.updateTask(me, taskId, input));
 }
 
 export async function acceptTaskAction(taskId: number): Promise<TaskActionResult> {
   const me = await requireUser();
-  return settle(machine.acceptTask(me, taskId));
+  return await settle(await machine.acceptTask(me, taskId));
 }
 
 export async function declineTaskAction(taskId: number, reason: string): Promise<TaskActionResult> {
   const me = await requireUser();
-  return settle(machine.declineTask(me, taskId, reason));
+  return await settle(await machine.declineTask(me, taskId, reason));
 }
 
 export async function claimTaskAction(taskId: number): Promise<TaskActionResult> {
   const me = await requireUser();
-  return settle(machine.claimTask(me, taskId));
+  return await settle(await machine.claimTask(me, taskId));
 }
 
 export async function completeTaskAction(taskId: number): Promise<TaskActionResult> {
   const me = await requireUser();
-  return settle(machine.completeTask(me, taskId));
+  return await settle(await machine.completeTask(me, taskId));
 }
 
 export async function reopenTaskAction(taskId: number): Promise<TaskActionResult> {
   const me = await requireUser();
-  return settle(machine.reopenTask(me, taskId));
+  return await settle(await machine.reopenTask(me, taskId));
 }
 
 export async function cancelTaskAction(taskId: number): Promise<TaskActionResult> {
   const me = await requireUser();
-  return settle(machine.cancelTask(me, taskId));
+  return await settle(await machine.cancelTask(me, taskId));
 }
 
 /** Marks the current user as having completed the board walkthrough. */
 export async function markTourCompleteAction(): Promise<ActionResult> {
   const me = await requireUser();
   if (me.hasToured) return ok;
-  db.update(users).set({ hasToured: true }).where(eq(users.id, me.id)).run();
+  await db.update(users).set({ hasToured: true }).where(eq(users.id, me.id)).run();
   return ok;
 }

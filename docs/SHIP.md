@@ -9,14 +9,15 @@ Everything below is already built and tested. This is the runbook, in order.
 
 ## 1. On the shop Mac
 
-```bash
-bash setup/bootstrap.sh
-```
+For the zero-ceremony foreground install, double-click **`Tasq.app`**.
+`start.command` beside it is the readable fallback. It installs Node and app
+dependencies when needed, offers the free Tailscale address, builds, starts,
+and opens the board. Its Terminal window stays open while the board runs.
 
-It checks the machine, moves the app out of `~/Documents` if needed, generates
-the secrets, builds, runs all checks, installs the background service + nightly
-backup, offers to stop the Mac sleeping, and sets up public HTTPS
-(`--tunnel=cloudflare` or `--tunnel=tailscale`). Run it as yourself, not `sudo`.
+For an always-on shop Mac that must survive logout and reboot, run `bash
+setup/bootstrap.sh` once instead. That path also moves the app out of protected
+folders, runs all checks, installs the background service + nightly backup, and
+offers to stop the Mac sleeping. Run it as yourself, not `sudo`.
 
 If the customer has no domain and you don't want to give them a subdomain:
 `--tunnel=tailscale` (works with no domain, but each device re-auths every ~180
@@ -26,8 +27,8 @@ days unless you disable key expiry in the Tailscale admin console).
 
 On first boot the server prints a one-time code in its window and writes it to
 `data/setup-code.txt`. Give that to the owner. They open `/setup`, enter it,
-name the board, and make themselves an admin with a 4-digit PIN. The code dies
-the moment they finish. On the very next boot the guided tour runs for them.
+and create themselves as the first admin with a 4-digit PIN. The code dies the
+moment they finish. The guided tour then runs for them.
 
 ## 3. Phones
 
@@ -101,7 +102,20 @@ To push an update and watch it land, with both Macs on the same tailnet:
 git push origin main && ssh <shop-mac> 'cd /Users/Shared/tasq && setup/autoupdate.sh --now'
 ```
 
-## 4. Later: sending an update by hand
+## 4. Later: customer updates
+
+For a published release, the owner double-clicks **`Check for
+Updates.command`**. A tag such as `v1.0.1` runs the free GitHub Actions release
+workflow and publishes `Tasq-update.zip`; the checker downloads that asset and
+passes it to the rollback-safe updater.
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+No release, GitHub outage, or offline Mac breaks the board. The manual fallback
+stays available:
 
 For a board without auto-update: zip the new app folder (minus `node_modules`, `data`, `.env.local`), name it
 `Tasq-update`, send it. The owner drops it on the Desktop and double-clicks
@@ -121,6 +135,8 @@ touched.
 - Boot smoke test — `/login` 200, security headers present, HSTS correctly
   absent on plain HTTP
 - `update.command` — happy path and rollback path both tested end to end
+- `Check for Updates.command` — release discovery, download, and offline/manual
+  fallback
 
 ### Known, non-blocking
 

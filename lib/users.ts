@@ -5,8 +5,8 @@ import { users, type User } from '@/lib/db/schema';
 import type { PersonSummary } from '@/lib/auth/results';
 
 /** Everyone still on the crew, in a stable order so the picker never reshuffles. */
-export function listActiveUsers(): User[] {
-  return db
+export async function listActiveUsers(): Promise<User[]> {
+  return await db
     .select()
     .from(users)
     .where(isNull(users.archivedAt))
@@ -14,12 +14,12 @@ export function listActiveUsers(): User[] {
     .all();
 }
 
-export function listAllUsers(): User[] {
-  return db.select().from(users).orderBy(asc(users.id)).all();
+export async function listAllUsers(): Promise<User[]> {
+  return await db.select().from(users).orderBy(asc(users.id)).all();
 }
 
-export function getUser(id: number): User | undefined {
-  return db.select().from(users).where(eq(users.id, id)).get();
+export async function getUser(id: number): Promise<User | undefined> {
+  return await db.select().from(users).where(eq(users.id, id)).get();
 }
 
 /** The picker only needs to know who exists and whether they have a PIN yet. */

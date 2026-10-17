@@ -31,7 +31,7 @@ const { setSetting } = await import('../lib/settings');
 const { hashPin } = await import('../lib/auth/pin');
 const { eq } = await import('drizzle-orm');
 
-initDatabase();
+await initDatabase();
 
 const now = Date.now();
 const DAY = 86_400_000;
@@ -48,12 +48,12 @@ const created: string[] = [];
 const kept: string[] = [];
 
 for (const person of CREW) {
-  const exists = db.select().from(users).where(eq(users.name, person.name)).get();
+  const exists = await db.select().from(users).where(eq(users.name, person.name)).get();
   if (exists) {
     kept.push(person.name);
     continue;
   }
-  db.insert(users)
+  await db.insert(users)
     .values({
       name: person.name,
       isAdmin: person.isAdmin,
@@ -66,7 +66,7 @@ for (const person of CREW) {
   created.push(person.name);
 }
 
-const all = db.select().from(users).all();
+const all = await db.select().from(users).all();
 const landon = all.find((u) => u.name === 'Landon U')!;
 const chris = all.find((u) => u.name === 'Chris U')!;
 const katie = all.find((u) => u.name === 'Katie U')!;
@@ -109,7 +109,7 @@ for (let daysAgo = 89; daysAgo >= 0; daysAgo -= 1) {
     const roll = rand();
     const who = roll < 0.4 ? chris : roll < 0.75 ? katie : landon;
     const reward = rand() < 0.16 ? [500, 1000, 1500, 2500][Math.floor(rand() * 4)] : null;
-    const task = machine.createTask(
+    const task = await machine.createTask(
       landon,
       {
         title: TITLES[n % TITLES.length],
@@ -123,35 +123,35 @@ for (let daysAgo = 89; daysAgo >= 0; daysAgo -= 1) {
     );
     n += 1;
     if (!task.ok || task.taskId === undefined) continue;
-    if (rand() < 0.2) machine.claimTask(who, task.taskId, at - 3_600_000);
-    machine.completeTask(who, task.taskId, at);
+    if (rand() < 0.2) await machine.claimTask(who, task.taskId, at - 3_600_000);
+    await machine.completeTask(who, task.taskId, at);
     // Most bounties settled; a few left owing so Payouts has rows to show.
-    if (reward !== null && rand() < 0.6) payouts.markTaskPaid(landon, task.taskId, at + 3_600_000);
+    if (reward !== null && rand() < 0.6) await payouts.markTaskPaid(landon, task.taskId, at + 3_600_000);
   }
 }
 
 // A few still open, one of them overdue, so the board is not empty either.
-machine.createTask(
+await machine.createTask(
   landon,
   { title: 'Order more polish', notes: '', assignedTo: null, isAsap: false, dueLocal: null, rewardCents: 1500 },
   now - 2 * DAY,
 );
-machine.createTask(
+await machine.createTask(
   landon,
   { title: 'Fix the bay light', notes: '', assignedTo: chris.id, isAsap: true, dueLocal: null, rewardCents: null },
   now - DAY,
 );
-machine.createTask(
+await machine.createTask(
   landon,
   { title: 'Vacuum the mats', notes: '', assignedTo: katie.id, isAsap: false, dueLocal: null, rewardCents: 500 },
   now - 4 * 3_600_000,
 );
-db.update(tasks)
+await db.update(tasks)
   .set({ dueAt: now - 6 * 3_600_000 })
   .where(eq(tasks.title, 'Fix the bay light'))
   .run();
 
-db.insert(supplyRequests)
+await db.insert(supplyRequests)
   .values([
     { item: 'Blue roll', quantity: 'a case', requestedBy: chris.id, status: 'requested', createdAt: now - 2 * DAY },
     { item: 'Screenwash', quantity: '5L', requestedBy: katie.id, status: 'ordered', createdAt: now - 6 * DAY, orderedAt: now - 4 * DAY },
@@ -159,14 +159,14 @@ db.insert(supplyRequests)
   .run();
 
 if (RESET_DEVICES) {
-  const gone = db.delete(devices).run();
-  setSetting('whitelist.enabled', 'false');
-  console.log(`cleared ${gone.changes} device(s); whitelist turned OFF so nobody is locked out.`);
+  const gone = await db.delete(devices).run();
+  await setSetting('whitelist.enabled', 'false');
+  console.log(`cleared ${gone.rowsAffected} device(s); whitelist turned OFF so nobody is locked out.`);
   console.log('Approve the devices you want on the Devices tab, then turn it back on there.');
 }
 
-const done = db.select().from(tasks).all().filter((t) => t.status === 'done').length;
-const open = db.select().from(tasks).all().filter((t) => t.status !== 'done' && t.status !== 'cancelled').length;
+const done = (await db.select().from(tasks).all()).filter((t) => t.status === 'done').length;
+const open = (await db.select().from(tasks).all()).filter((t) => t.status !== 'done' && t.status !== 'cancelled').length;
 console.log(`\n${done} finished and ${open} open tasqs at ${DB}`);
 if (created.length > 0) console.log(`added: ${created.join(', ')} — PIN ${PIN}`);
 if (kept.length > 0) console.log(`already there, untouched (PIN unchanged): ${kept.join(', ')}`);

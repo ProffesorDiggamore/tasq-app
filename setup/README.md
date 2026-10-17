@@ -49,7 +49,8 @@ needs a terminal and a browser, so `--yes` unattended runs skip it — run
 
 ### When it finishes
 
-1. Open the board and tap **Chris** to set the first PIN.
+1. Open `/setup`, enter the one-time code printed by the server, and create the
+   owner's admin account and PIN.
 2. **Settings → Get it on a phone** has a QR code. Point each phone's camera at
    it, then **Share → Add to Home Screen**.
 3. Open it from the home screen and allow notifications.
@@ -61,7 +62,7 @@ that has been added to the home screen, on iOS 16.4 or newer.
 
 | | |
 | --- | --- |
-| Update it | double-click `update.command` in the app folder (see below) |
+| Update it | double-click `Check for Updates.command` (`update.command` is the offline fallback) |
 | Watch the log | `tail -f logs/server.log` |
 | Is it running | `launchctl print system/com.tasq.server \| grep state` |
 | Back up now | `setup/backup.sh` |
@@ -280,12 +281,13 @@ lose this data, point Time Machine or a cloud sync folder at `backups/` too.
 
 ### Updating
 
-**For the shop owner — no terminal needed.** When Landon sends a new version
-(a folder called `Tasq-update`, or a `Tasq-update` zip), put it on the Desktop
-or in Downloads, then double-click **`update.command`** in the app folder. It
-backs up your data first, installs the new version, checks it starts, and
-leaves the board running the way it was. If anything goes wrong it puts your
-old version back — nothing is lost.
+**For the shop owner — no terminal needed.** Double-click **`Check for
+Updates.command`** in the app folder. It downloads the newest published release
+and runs the safe updater. When the Mac is offline, put the `Tasq-update` folder
+or zip Landon sends on the Desktop or in Downloads, then double-click
+**`update.command`** instead. Both paths back up the data first, install into a
+staging copy, check that it starts, and restore the old version automatically
+if anything goes wrong.
 
 **For developers** (git checkout, terminal):
 

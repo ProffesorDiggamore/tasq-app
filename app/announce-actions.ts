@@ -6,6 +6,7 @@ import { getUser } from '@/lib/users';
 import { logActivity } from '@/lib/activity';
 import { fail, ok, type ActionResult } from '@/lib/action-result';
 import type { NotifyAudience } from '@/lib/board-types';
+import { ANNOUNCEMENT_HEADLINE, notifyBody } from '@/lib/notify-copy';
 
 const MAX_LENGTH = 280;
 
@@ -34,7 +35,7 @@ export async function sendAnnouncementAction(
     summaryTarget = 'everyone';
   } else {
     if (!Number.isInteger(target)) return fail('Pick who this goes to.');
-    const person = getUser(target);
+    const person = await getUser(target);
     if (!person || person.archivedAt !== null) return fail('That person is no longer on the board.');
     audience = { kind: 'user', userId: person.id };
     summaryTarget = person.name;
@@ -42,13 +43,13 @@ export async function sendAnnouncementAction(
 
   await dispatch({
     audience,
-    title: `${me.name} announced`,
-    body,
+    title: ANNOUNCEMENT_HEADLINE,
+    body: notifyBody(body, `from ${me.name}`),
     url: '/',
     tag: `announce-${Date.now()}`,
   });
 
-  logActivity({
+  await logActivity({
     actorId: me.id,
     verb: 'announcement.sent',
     subjectType: 'announcement',

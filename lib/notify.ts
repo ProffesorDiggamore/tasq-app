@@ -5,6 +5,8 @@ import { db } from '@/lib/db';
 import { groupMembers, pushSubscriptions, tasks, users } from '@/lib/db/schema';
 import type { NotifyIntent } from '@/lib/board-types';
 import { getSetting, setSettingIfAbsent } from '@/lib/settings';
+import { notifyEnabled } from '@/lib/notify-policy';
+import { NOTIFY_HEADLINE, notifyBody, taskDetail } from '@/lib/notify-copy';
 
 /**
  * The single place anything leaves the building.
@@ -15,12 +17,20 @@ import { getSetting, setSettingIfAbsent } from '@/lib/settings';
  */
 interface Channel {
   readonly name: string;
-  configured(): boolean;
+  configured(): Promise<boolean>;
   send(userIds: number[], intent: NotifyIntent): Promise<void>;
 }
 
-/** Used when the deployment does not say otherwise. Push services only need a reachable contact shape. */
-const DEFAULT_VAPID_SUBJECT = 'mailto:board-notifications@localhost';
+/**
+ * Used when the deployment does not say otherwise.
+ *
+ * Apple's push service does not merely want a "contact shape": it parses the
+ * `sub` claim and rejects a mailto whose domain is not a real one. The old
+ * default, `mailto:board-notifications@localhost`, made every send to an iPhone
+ * fail with 403 BadJwtToken while Chrome/FCM accepted the same JWT happily —
+ * which reads as "notifications are broken on iPhone only".
+ */
+const DEFAULT_VAPID_SUBJECT = 'mailto:notifications@tasq.app';
 
 interface VapidKeys {
   publicKey: string;
@@ -37,12 +47,12 @@ let vapidReady: boolean | null = null;
  * once must never end up holding a public half from one pair and a private
  * half from another.
  */
-function resolveVapidKeys(): VapidKeys | null {
+async function resolveVapidKeys(): Promise<VapidKeys | null> {
   const envPublic = process.env.VAPID_PUBLIC_KEY;
   const envPrivate = process.env.VAPID_PRIVATE_KEY;
   if (envPublic && envPrivate) return { publicKey: envPublic, privateKey: envPrivate };
 
-  const stored = getSetting('vapid.keys');
+  const stored = await getSetting('vapid.keys');
   if (stored) {
     try {
       const parsed = JSON.parse(stored) as VapidKeys;
@@ -53,25 +63,42 @@ function resolveVapidKeys(): VapidKeys | null {
   }
 
   const generated = webpush.generateVAPIDKeys();
-  const winner = setSettingIfAbsent('vapid.keys', JSON.stringify(generated));
+  const winner = await setSettingIfAbsent('vapid.keys', JSON.stringify(generated));
   const keys = JSON.parse(winner) as VapidKeys;
   console.log('[tasq] Generated Web Push (VAPID) keys and saved them to the database.');
   return keys;
 }
 
-function resolveSubject(): string {
-  return process.env.VAPID_SUBJECT || getSetting('vapid.subject') || DEFAULT_VAPID_SUBJECT;
+/**
+ * Apple accepts `https://…` or a mailto at a domain with a dot in it, and
+ * answers anything else with a 403 that names no cause. A subject that cannot
+ * work is worth catching here, where we can say so, rather than once per send.
+ */
+function usableSubject(subject: string): boolean {
+  if (/^https?:\/\/\S+$/.test(subject)) return true;
+  const mail = /^mailto:[^@\s]+@([^@\s]+)$/.exec(subject);
+  return mail !== null && mail[1].includes('.') && !mail[1].endsWith('.');
 }
 
-function configureVapid(): boolean {
+async function resolveSubject(): Promise<string> {
+  const configured = process.env.VAPID_SUBJECT || await getSetting('vapid.subject');
+  if (!configured) return DEFAULT_VAPID_SUBJECT;
+  if (usableSubject(configured)) return configured;
+  console.warn(
+    `[tasq] VAPID subject ${configured} is not one Apple will accept — falling back to ${DEFAULT_VAPID_SUBJECT}. Use https://your-domain or mailto:you@your-domain.`,
+  );
+  return DEFAULT_VAPID_SUBJECT;
+}
+
+async function configureVapid(): Promise<boolean> {
   if (vapidReady !== null) return vapidReady;
   try {
-    const keys = resolveVapidKeys();
+    const keys = await resolveVapidKeys();
     if (!keys) {
       vapidReady = false;
       return false;
     }
-    webpush.setVapidDetails(resolveSubject(), keys.publicKey, keys.privateKey);
+    webpush.setVapidDetails(await resolveSubject(), keys.publicKey, keys.privateKey);
     vapidReady = true;
   } catch (error) {
     console.error('[tasq] Could not configure Web Push', error);
@@ -80,13 +107,13 @@ function configureVapid(): boolean {
   return vapidReady;
 }
 
-export function pushConfigured(): boolean {
-  return configureVapid();
+export async function pushConfigured(): Promise<boolean> {
+  return await configureVapid();
 }
 
 /** Provisioning happens here too, so the browser can subscribe before anything has been sent. */
-export function vapidPublicKey(): string | null {
-  return resolveVapidKeys()?.publicKey ?? null;
+export async function vapidPublicKey(): Promise<string | null> {
+  return (await resolveVapidKeys())?.publicKey ?? null;
 }
 
 const webPushChannel: Channel = {
@@ -94,7 +121,7 @@ const webPushChannel: Channel = {
   configured: configureVapid,
   async send(userIds, intent) {
     if (userIds.length === 0) return;
-    const subs = db
+    const subs = await db
       .select()
       .from(pushSubscriptions)
       .where(inArray(pushSubscriptions.userId, userIds))
@@ -117,7 +144,7 @@ const webPushChannel: Channel = {
         };
         try {
           await webpush.sendNotification(subscription, body, { TTL: 60 * 60 });
-          db
+          await db
             .update(pushSubscriptions)
             .set({ lastSeenAt: Date.now() })
             .where(eq(pushSubscriptions.id, row.id))
@@ -127,7 +154,16 @@ const webPushChannel: Channel = {
           // 404/410 mean the browser threw the subscription away — so do we,
           // otherwise dead endpoints accumulate forever and slow every send.
           if (status === 404 || status === 410) {
-            db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, row.id)).run();
+            await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, row.id)).run();
+          } else if (status === 403) {
+            // Not a dead endpoint — the push service refused our credentials, so
+            // the row is kept and the reason printed. Apple says BadJwtToken for
+            // a subject it will not take; both services say VapidPkHashMismatch
+            // when the subscription was minted against a different key pair.
+            const reason = (error as { body?: string }).body?.trim();
+            console.warn(
+              `[tasq] push to subscription ${row.id} refused (403)${reason ? `: ${reason}` : ''} — check VAPID_SUBJECT and that this device re-subscribed with the current key.`,
+            );
           } else {
             console.warn(`[tasq] push to subscription ${row.id} failed (${status ?? 'no status'})`);
           }
@@ -139,23 +175,32 @@ const webPushChannel: Channel = {
 
 const CHANNELS: readonly Channel[] = [webPushChannel];
 
-function resolveAudience(intent: NotifyIntent): number[] {
+async function resolveAudience(intent: NotifyIntent): Promise<number[]> {
   switch (intent.audience.kind) {
     case 'user':
       return [intent.audience.userId];
-    case 'admins':
-      return db
+    case 'admins': {
+      const except = intent.audience.except;
+      return (await db
         .select({ id: users.id })
         .from(users)
-        .where(and(eq(users.isAdmin, true), isNull(users.archivedAt)))
-        .all()
+        .where(
+          and(
+            eq(users.isAdmin, true),
+            isNull(users.archivedAt),
+            // An admin who just tapped the thing does not need telling about it.
+            except === undefined ? undefined : ne(users.id, except),
+          ),
+        )
+        .all())
         .map((u) => u.id);
+    }
     case 'group': {
       // A tab is a wall the rest of the shop cannot see over, so an ASAP posted
       // there must not push its title to people who are not on it. Admins are
       // included because every tab is already theirs on the board itself.
       const { groupId, except } = intent.audience;
-      const rows = db
+      const rows = await db
         .selectDistinct({ id: users.id })
         .from(users)
         .leftJoin(groupMembers, eq(groupMembers.userId, users.id))
@@ -171,7 +216,7 @@ function resolveAudience(intent: NotifyIntent): number[] {
     }
     case 'everyone': {
       const except = intent.audience.except;
-      const rows = db
+      const rows = await db
         .select({ id: users.id })
         .from(users)
         .where(
@@ -185,29 +230,76 @@ function resolveAudience(intent: NotifyIntent): number[] {
   }
 }
 
-/** Send one intent. Never throws — a failed notification must not fail the action. */
-export async function dispatch(intent: NotifyIntent): Promise<void> {
+const NOBODY: ReadonlySet<number> = new Set();
+
+/**
+ * Send one intent, skipping anyone in `alreadyTold`, and report who it actually
+ * reached. Never throws — a failed notification must not fail the action.
+ */
+async function send(intent: NotifyIntent, alreadyTold: ReadonlySet<number>): Promise<number[]> {
   try {
-    const userIds = resolveAudience(intent);
-    if (userIds.length === 0) return;
+    // The board's own rules come first: a switch turned off on the Notifications
+    // screen stops the buzz here, once, rather than at ten call sites. Returning
+    // nobody is what lets a later intent about the same task still reach them —
+    // a person the rules silenced was not told, so they are not a duplicate.
+    if (intent.event !== undefined && !await notifyEnabled(intent.event)) return [];
+    const userIds = (await resolveAudience(intent)).filter((id) => !alreadyTold.has(id));
+    if (userIds.length === 0) return [];
     for (const channel of CHANNELS) {
-      if (!channel.configured()) continue;
+      if (!await channel.configured()) continue;
       await channel.send(userIds, intent);
     }
+    return userIds;
   } catch (error) {
     console.error('[tasq] notification dispatch failed', error);
+    return [];
   }
 }
 
+export async function dispatch(intent: NotifyIntent): Promise<void> {
+  await send(intent, NOBODY);
+}
+
+/**
+ * Send a batch from one action, at most one buzz per person per subject.
+ *
+ * One action routinely produces two intents that overlap. Posting an ASAP job
+ * and handing it to Chris writes "For you" to Chris and "Something is ASAP" to
+ * everyone-but-the-poster, and Chris is in both — two buzzes, two seconds
+ * apart, about one job. Every audience carries an `except` for the person who
+ * pressed the button, but no call site can reasonably enumerate everyone an
+ * earlier intent in its own batch already covered.
+ *
+ * So the batch enforces it instead, keyed on `tag`, which is already "the
+ * subject this is about" (`task-41`). First intent wins, which is the right
+ * one: the personal, more specific message is always pushed before the
+ * broadcast. Intents with no tag are announcements about nothing in
+ * particular and are never deduplicated against each other.
+ */
 export async function dispatchAll(intents: readonly NotifyIntent[]): Promise<void> {
-  for (const intent of intents) await dispatch(intent);
+  const toldAbout = new Map<string, Set<number>>();
+  for (const intent of intents) {
+    const tag = intent.tag;
+    const reached = await send(intent, (tag && toldAbout.get(tag)) || NOBODY);
+    if (tag === undefined || reached.length === 0) continue;
+    const seen = toldAbout.get(tag) ?? new Set<number>();
+    for (const id of reached) seen.add(id);
+    toldAbout.set(tag, seen);
+  }
 }
 
 /** Called by the scheduler once a task has been stamped as overdue-notified. */
 export async function notifyOverdue(taskIds: number[]): Promise<void> {
   if (taskIds.length === 0) return;
-  const rows = db
-    .select({ id: tasks.id, title: tasks.title, assignedTo: tasks.assignedTo })
+  const rows = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      assignedTo: tasks.assignedTo,
+      rewardCents: tasks.rewardCents,
+      dueAt: tasks.dueAt,
+      notes: tasks.notes,
+    })
     .from(tasks)
     .where(inArray(tasks.id, taskIds))
     .all();
@@ -216,11 +308,12 @@ export async function notifyOverdue(taskIds: number[]): Promise<void> {
     if (task.assignedTo === null) continue;
     await dispatch({
       audience: { kind: 'user', userId: task.assignedTo },
-      title: 'Overdue',
-      body: task.title,
+      title: NOTIFY_HEADLINE['task.overdue'],
+      body: notifyBody(task.title, taskDetail(task)),
       url: `/?task=${task.id}`,
       tag: `task-${task.id}`,
       urgent: true,
+      event: 'task.overdue',
     });
   }
 }

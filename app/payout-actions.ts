@@ -14,14 +14,14 @@ function refresh(): void {
 
 export async function markPersonPaidAction(userId: number): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const { cents: _cents, ...result } = markPersonPaid(admin, userId);
+  const { cents: _cents, ...result } = await markPersonPaid(admin, userId);
   if (result.ok) refresh();
   return result;
 }
 
 export async function markTaskPaidAction(taskId: number): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const result = markTaskPaid(admin, taskId);
+  const result = await markTaskPaid(admin, taskId);
   if (result.ok) refresh();
   return result;
 }

@@ -3,10 +3,10 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { db } from '@/lib/db';
+import { db, REMOTE_DATABASE_URL } from '@/lib/db';
 import { setupCodes, users, type SetupCode } from '@/lib/db/schema';
 import { hashPin, isValidPinFormat } from '@/lib/auth/pin';
-import { setSetting, DEFAULT_ORG_NAME } from '@/lib/settings';
+import { setSetting } from '@/lib/settings';
 import { logActivity } from '@/lib/activity';
 import { DB_PATH } from '@/lib/paths';
 
@@ -67,11 +67,11 @@ function hashesMatch(computedHex: string, storedHex: string): boolean {
  * list of unused codes is read and each stored hash is checked with
  * timingSafeEqual, so a probe of guess timing learns nothing about a code.
  */
-function findUnusedCode(raw: string): SetupCode | undefined {
+async function findUnusedCode(raw: string): Promise<SetupCode | undefined> {
   const code = normalizeCode(raw);
   if (code === null) return undefined;
   const computed = hashCode(code);
-  const rows = db.select().from(setupCodes).where(isNull(setupCodes.usedAt)).all();
+  const rows = await db.select().from(setupCodes).where(isNull(setupCodes.usedAt)).all();
   for (const row of rows) {
     if (hashesMatch(computed, row.codeHash)) return row;
   }
@@ -101,8 +101,8 @@ function generateCode(): string {
   return out;
 }
 
-export function hasActiveUsers(): boolean {
-  const row = db
+export async function hasActiveUsers(): Promise<boolean> {
+  const row = await db
     .select({ n: sql<number>`count(*)` })
     .from(users)
     .where(isNull(users.archivedAt))
@@ -110,9 +110,9 @@ export function hasActiveUsers(): boolean {
   return (row?.n ?? 0) > 0;
 }
 
-function hasUnusedCode(kind?: SetupCodeKind): boolean {
+async function hasUnusedCode(kind?: SetupCodeKind): Promise<boolean> {
   const where = isNull(setupCodes.usedAt);
-  const row = db
+  const row = await db
     .select({ n: sql<number>`count(*)` })
     .from(setupCodes)
     .where(kind ? and(where, eq(setupCodes.kind, kind)) : where)
@@ -121,8 +121,8 @@ function hasUnusedCode(kind?: SetupCodeKind): boolean {
 }
 
 /** True when a live board has an unused recovery code waiting at /setup. */
-export function canRecover(): boolean {
-  return hasActiveUsers() && hasUnusedCode('recovery');
+export async function canRecover(): Promise<boolean> {
+  return await hasActiveUsers() && await hasUnusedCode('recovery');
 }
 
 /** The file an initial code was filed under. Deleted the moment it is used. */
@@ -167,8 +167,14 @@ function printSetupCode(code: string): void {
   console.log(pad(line));
   console.log(pad(''));
   console.log(pad('  Open /setup in a browser, enter this code, and'));
-  console.log(pad('  create your admin account. Also saved to'));
-  console.log(pad('  data/setup-code.txt next to the database.'));
+  if (REMOTE_DATABASE_URL) {
+    // Hosted: printed into the deploy log, and only this deploy's code works.
+    console.log(pad('  create your admin account. Each deploy prints'));
+    console.log(pad('  a new code until the board is set up.'));
+  } else {
+    console.log(pad('  create your admin account. Also saved to'));
+    console.log(pad('  data/setup-code.txt next to the database.'));
+  }
   console.log(`└${rule}┘`);
   console.log('');
 }
@@ -180,12 +186,12 @@ function printSetupCode(code: string): void {
  * that mints the code. Minting still happens exactly once: an unused code is
  * re-surfaced from setup-code.txt rather than replaced.
  */
-export function ensureSetupCode(): void {
-  if (hasActiveUsers()) return;
+export async function ensureSetupCode(): Promise<void> {
+  if (await hasActiveUsers()) return;
 
   const file = codeFilePath();
 
-  if (hasUnusedCode('initial')) {
+  if (await hasUnusedCode('initial')) {
     // A code was already minted on an earlier boot. Its plaintext only exists
     // in the file — the database keeps a hash — so re-print from there.
     const existing = readCodeFile();
@@ -195,13 +201,13 @@ export function ensureSetupCode(): void {
     }
     // The file was removed but the board was never set up, so the code is
     // unrecoverable. Drop the dead row and mint a fresh one below.
-    db.delete(setupCodes)
+    await db.delete(setupCodes)
       .where(and(eq(setupCodes.kind, 'initial'), isNull(setupCodes.usedAt)))
       .run();
   }
 
   const code = generateCode();
-  db.insert(setupCodes)
+  await db.insert(setupCodes)
     .values({ codeHash: hashCode(code), kind: 'initial', createdAt: Date.now() })
     .run();
 
@@ -223,12 +229,12 @@ export function ensureSetupCode(): void {
  * only admin left and nobody knows the PIN". Run from the machine itself:
  *   npm run recover
  */
-export function mintRecoveryCode(): string | null {
-  if (!hasActiveUsers()) return null;
-  if (hasUnusedCode('recovery')) return null;
+export async function mintRecoveryCode(): Promise<string | null> {
+  if (!await hasActiveUsers()) return null;
+  if (await hasUnusedCode('recovery')) return null;
 
   const code = generateCode();
-  db.insert(setupCodes)
+  await db.insert(setupCodes)
     .values({ codeHash: hashCode(code), kind: 'recovery', createdAt: Date.now() })
     .run();
 
@@ -245,8 +251,8 @@ export function mintRecoveryCode(): string | null {
   return code;
 }
 
-export function verifySetupCode(raw: string): boolean {
-  return findUnusedCode(raw) !== undefined;
+export async function verifySetupCode(raw: string): Promise<boolean> {
+  return await findUnusedCode(raw) !== undefined;
 }
 
 /**
@@ -263,7 +269,6 @@ export function verifySetupCode(raw: string): boolean {
  */
 export async function redeemSetupCode(
   rawCode: string,
-  orgName: string,
   adminName: string,
   pin: string,
   confirm: string,
@@ -272,28 +277,27 @@ export async function redeemSetupCode(
   if (code === null) return { ok: false, reason: 'bad-code' };
 
   // Single constant-time lookup; `code` is only hashed, never compared in SQL.
-  const claimed = findUnusedCode(code);
+  const claimed = await findUnusedCode(code);
   if (!claimed) {
     // Set-up-ness is answered before "invalid" so a stale initial code on a
     // live board gets the truthful rejection.
-    if (hasActiveUsers()) return { ok: false, reason: 'already-set-up' };
+    if (await hasActiveUsers()) return { ok: false, reason: 'already-set-up' };
     return { ok: false, reason: 'bad-code' };
   }
   const recovery = claimed.kind === 'recovery';
-  if (!recovery && hasActiveUsers()) return { ok: false, reason: 'already-set-up' };
-  if (recovery && !hasActiveUsers()) return { ok: false, reason: 'bad-code' };
+  if (!recovery && await hasActiveUsers()) return { ok: false, reason: 'already-set-up' };
+  if (recovery && !await hasActiveUsers()) return { ok: false, reason: 'bad-code' };
 
   const name = adminName.trim().replace(/\s+/g, ' ');
-  const org = orgName.trim().replace(/\s+/g, ' ').slice(0, 60);
   if (name.length < 2) return { ok: false, reason: 'bad-name' };
-  const clash = db.select({ id: users.id }).from(users).where(eq(users.name, name)).get();
+  const clash = await db.select({ id: users.id }).from(users).where(eq(users.name, name)).get();
   if (clash) return { ok: false, reason: 'name-taken' };
   if (!isValidPinFormat(pin)) return { ok: false, reason: 'bad-pin' };
   if (pin !== confirm) return { ok: false, reason: 'pin-mismatch' };
 
   const pinHash = await hashPin(pin);
   const now = Date.now();
-  const inserted = db
+  const inserted = await db
     .insert(users)
     .values({ name, isAdmin: true, isFounder: !recovery, pinHash, createdAt: now })
     .returning({ id: users.id })
@@ -303,21 +307,21 @@ export async function redeemSetupCode(
   // unused row — SQLite serialises writes, so of two submissions racing each
   // other exactly one wins, and a replayed code (recovery or initial) can never
   // be consumed twice.
-  const matched = db
+  const matched = await db
     .update(setupCodes)
     .set({ usedAt: now })
     .where(and(eq(setupCodes.id, claimed.id), isNull(setupCodes.usedAt)))
     .run();
 
-  if (matched.changes === 0) {
+  if (matched.rowsAffected === 0) {
     // Another submission claimed the code first. Undo this account so exactly
     // one winner's choices stand.
-    db.delete(users).where(eq(users.id, inserted.id)).run();
+    await db.delete(users).where(eq(users.id, inserted.id)).run();
     return { ok: false, reason: recovery ? 'bad-code' : 'already-set-up' };
   }
 
   if (recovery) {
-    logActivity({
+    await logActivity({
       actorId: inserted.id,
       verb: 'user.recovered',
       subjectType: 'user',
@@ -325,13 +329,12 @@ export async function redeemSetupCode(
       summary: `${name} used a recovery code to become an admin`,
     });
   } else {
-    setSetting('org.name', org.length > 0 ? org : DEFAULT_ORG_NAME);
     try {
       fs.rmSync(codeFilePath(), { force: true });
     } catch {
       // The database is the source of truth; the file is a courtesy copy.
     }
-    logActivity({
+    await logActivity({
       actorId: inserted.id,
       verb: 'board.setup',
       subjectType: 'user',

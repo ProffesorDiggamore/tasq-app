@@ -55,7 +55,7 @@ export function NotificationPrompt() {
         >
           <h2 className="type-headline">Get told when something&apos;s yours</h2>
           <p className="type-callout mt-1.5 text-[var(--text-secondary)]">
-            A buzz when a task is assigned to you or something goes up as ASAP — instead of finding
+            A buzz when a tasq is assigned to you or something goes up as ASAP — instead of finding
             out at the end of the day.
           </p>
           <div className="mt-4 flex gap-2">

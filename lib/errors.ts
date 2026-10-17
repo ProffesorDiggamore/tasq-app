@@ -2,7 +2,7 @@
  * Stable error codes, TASQ-Exxxx.
  *
  * Shops see the message; support sees the code. A code is printed verbatim in
- * logs and API responses so "TASQ-E0404" can be looked up in ERROR-CODES.md at
+ * logs and API responses so "TASQ-E0404" can be looked up in docs/ERROR-CODES.md at
  * the repo root and handed back a plain-English fix — no source diving.
  *
  * Groups: auth 01xx, tasks 02xx, supplies 03xx, push 04xx, setup 05xx,
@@ -27,20 +27,20 @@ export const ERROR_REGISTRY = {
   'TASQ-E0110': 'The server is missing its session secret — see .env.example.',
   'TASQ-E0111': 'Too many attempts from this device. Wait a minute and try again.',
 
-  // --- tasks (02xx) --------------------------------------------------------
-  'TASQ-E0201': 'That task is gone.',
-  'TASQ-E0202': 'That task was cancelled.',
-  'TASQ-E0203': 'That task is already done.',
-  'TASQ-E0204': 'Someone else already claimed that task.',
-  'TASQ-E0205': 'Only admins can add tasks.', // retired — anyone may post since tabs shipped
-  'TASQ-E0206': 'Give the task a title.',
+  // --- tasqs (02xx) --------------------------------------------------------
+  'TASQ-E0201': 'That tasq is gone.',
+  'TASQ-E0202': 'That tasq was cancelled.',
+  'TASQ-E0203': 'That tasq is already done.',
+  'TASQ-E0204': 'Someone else already claimed that tasq.',
+  'TASQ-E0205': 'Only admins can add tasqs.', // retired — anyone may post since tabs shipped
+  'TASQ-E0206': 'Give the tasq a title.',
   'TASQ-E0207': 'That person is no longer on the board.',
   'TASQ-E0208': "That due time didn't parse — pick it from the picker again.",
-  'TASQ-E0209': "Only the task's creator or an admin can edit that.",
-  'TASQ-E0210': "Only the task's creator or an admin can cancel that.",
-  'TASQ-E0211': 'That task just moved — pull down to refresh and try again.',
+  'TASQ-E0209': "Only the tasq's creator or an admin can edit that.",
+  'TASQ-E0210': "Only the tasq's creator or an admin can cancel that.",
+  'TASQ-E0211': 'That tasq just moved — pull down to refresh and try again.',
   'TASQ-E0212': 'That tab is gone, or you are not on it.',
-  'TASQ-E0213': 'Only an admin can put a cash reward on a task.',
+  'TASQ-E0213': 'Only an admin can put a cash reward on a tasq.',
 
   // --- supplies (03xx) -----------------------------------------------------
   'TASQ-E0301': 'Say what you need in the item box.',
@@ -75,9 +75,9 @@ export const ERROR_REGISTRY = {
   // --- photo proof (07xx) --------------------------------------------------
   'TASQ-E0701': 'That photo came out too big even after shrinking — try again.',
   'TASQ-E0702': 'That file is not a photo this board can read.',
-  'TASQ-E0703': 'That task is gone, so a photo cannot be saved to it.',
+  'TASQ-E0703': 'That tasq is gone, so a photo cannot be saved to it.',
   'TASQ-E0704': 'Too many photo changes — wait a minute.',
-  'TASQ-E0705': 'There is no photo on that task yet.',
+  'TASQ-E0705': 'There is no photo on that tasq yet.',
 } as const;
 
 export type TasqErrorCode = keyof typeof ERROR_REGISTRY;

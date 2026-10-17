@@ -279,7 +279,7 @@ export function TaskSheet({
                     else setConfirmCancel(true);
                   }}
                 >
-                  {confirmCancel ? 'Tap again to cancel this task' : 'Cancel this task'}
+                  {confirmCancel ? 'Tap again to cancel this tasq' : 'Cancel this tasq'}
                 </Button>
               ) : null}
             </motion.div>
@@ -304,7 +304,7 @@ function StatusPill({ task, viewerId }: { task: BoardTask; viewerId: number }) {
   const map: Record<string, { label: string; color: string }> = {
     pending:
       task.assignedTo === null
-        ? { label: 'Up for grabs', color: 'var(--accent)' }
+        ? { label: 'Unclaimed', color: 'var(--accent)' }
         : {
             label: task.assignedTo === viewerId ? 'Waiting on you' : 'Waiting to be accepted',
             color: 'var(--accent)',

@@ -31,12 +31,46 @@ for f in "$ROOT"/setup/*.sh; do
   LABEL="$(basename "$f") parses"
   ok_if bash -n "$f"
 done
+for f in "$ROOT"/start.command "$ROOT"/update.command "$ROOT"/'Check for Updates.command' "$ROOT"/scripts/check-port.sh "$ROOT"/Tasq.app/Contents/MacOS/Tasq; do
+  LABEL="$(basename "$f") parses"
+  ok_if bash -n "$f"
+done
 
 echo
 echo "Scripts are executable"
 for f in "$ROOT"/setup/*.sh; do
   LABEL="$(basename "$f") is executable"
   ok_if test -x "$f"
+done
+for f in "$ROOT"/start.command "$ROOT"/update.command "$ROOT"/'Check for Updates.command' "$ROOT"/scripts/check-port.sh "$ROOT"/Tasq.app/Contents/MacOS/Tasq; do
+  LABEL="$(basename "$f") is executable"
+  ok_if test -x "$f"
+done
+
+echo
+echo "Launcher isolation hooks"
+check "start.command honors the QA port" \
+  "$(grep -c 'export PORT="${TASQ_PORT:-${PORT:-4744}}"' "$ROOT/start.command")" "1"
+check "start.command can suppress opening the real browser" \
+  "$(grep -c 'TASQ_NO_OPEN' "$ROOT/start.command")" "1"
+check "Tasq.app can isolate browser opening during QA" \
+  "$(grep -c 'TASQ_OPEN_BIN' "$ROOT/Tasq.app/Contents/MacOS/Tasq")" "1"
+
+echo
+echo "Finder launcher and releases"
+LABEL="Tasq.app has a valid Info.plist"
+ok_if plutil -lint "$ROOT/Tasq.app/Contents/Info.plist"
+LABEL="Tasq.app has an icon"
+ok_if test -s "$ROOT/Tasq.app/Contents/Resources/Tasq.icns"
+LABEL="customer releases have a version"
+ok_if grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' "$ROOT/VERSION"
+LABEL="release workflow publishes the expected update asset"
+ok_if grep -q 'Tasq-update.zip' "$ROOT/.github/workflows/release.yml"
+LABEL="customer releases exclude internal skill observations"
+ok_if grep -q -- '--exclude /skill-observations' "$ROOT/.github/workflows/release.yml"
+for internal in .claude .claude-flow .mimosa AGENTS.md CLAUDE.md billing tsconfig.tsbuildinfo; do
+  LABEL="customer releases exclude $internal"
+  ok_if grep -q -- "--exclude /$internal" "$ROOT/.github/workflows/release.yml"
 done
 
 echo
@@ -102,6 +136,14 @@ echo
 echo "Documented commands exist"
 LABEL="bootstrap.sh --help works"
 ok_if bash "$BOOTSTRAP" --help
+LABEL="Tailscale help shows the reconnect mode"
+ok_if bash -c "bash '$ROOT/setup/tailscale.sh' --help | grep -q -- '--ensure'"
+LABEL="Tailscale help shows the boot keepalive mode"
+ok_if bash -c "bash '$ROOT/setup/tailscale.sh' --help | grep -q -- '--boot'"
+LABEL="Tailscale download is signature-checked before install"
+ok_if grep -q 'spctl -a -vv -t install' "$ROOT/setup/tailscale.sh"
+LABEL="Tailscale uses the signed standalone macOS package"
+ok_if grep -q 'Tailscale-latest-macos.pkg' "$ROOT/setup/tailscale.sh"
 LABEL="README points at bootstrap.sh"
 ok_if grep -q 'setup/bootstrap.sh' "$ROOT/setup/README.md"
 

@@ -36,7 +36,7 @@ export async function signOut(): Promise<void> {
 export async function currentUser(): Promise<User | null> {
   const session = await getSession();
   if (!session.userId) return null;
-  const user = db.select().from(users).where(eq(users.id, session.userId)).get();
+  const user = await db.select().from(users).where(eq(users.id, session.userId)).get();
   if (!user || user.archivedAt !== null) return null;
   return user;
 }

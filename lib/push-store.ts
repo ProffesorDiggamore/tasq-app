@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { pushSubscriptions } from '@/lib/db/schema';
 
@@ -20,7 +20,14 @@ export interface SubscriptionInput {
   auth: string;
 }
 
-export type UpsertResult = { ok: true } | { ok: false; code: 'TASQ-E0402' | 'TASQ-E0404' };
+/** How many stale rows the last upsert retired. Only the verify script reads it. */
+export interface UpsertOk {
+  ok: true;
+  /** Superseded subscriptions for this same device, now deleted. */
+  replaced: number;
+}
+
+export type UpsertResult = UpsertOk | { ok: false; code: 'TASQ-E0402' | 'TASQ-E0404' };
 
 /**
  * Store or refresh this device's subscription for the signed-in person.
@@ -31,16 +38,26 @@ export type UpsertResult = { ok: true } | { ok: false; code: 'TASQ-E0402' | 'TAS
  *   people must unsubscribe (disablePush) before the next person subscribes —
  *   silently re-pointing someone else's device at the new user is exactly the
  *   takeover this refuses to do.
+ *
+ * Then, with `deviceHash` known, any OTHER row this person holds for the same
+ * device is deleted. A phone does not keep its push endpoint across a reinstall
+ * or a service-worker replacement — it subscribes again and gets a fresh URL,
+ * while the old endpoint goes on accepting pushes for days. Both rows then pass
+ * the endpoint-unique index, both deliver, and the phone buzzes twice for every
+ * job. One device, one subscription. Rows with no hash (written before this
+ * column, or by a browser holding no cookie yet) are left alone rather than
+ * guessed at.
  */
-export function upsertSubscription(
+export async function upsertSubscription(
   userId: number,
   sub: SubscriptionInput,
   userAgent: string | null,
+  deviceHash: string | null = null,
   now: number = Date.now(),
-): UpsertResult {
+): Promise<UpsertResult> {
   if (!sub.endpoint || !sub.p256dh || !sub.auth) return { ok: false, code: 'TASQ-E0402' };
 
-  const existing = db
+  const existing = await db
     .select({ id: pushSubscriptions.id, userId: pushSubscriptions.userId })
     .from(pushSubscriptions)
     .where(eq(pushSubscriptions.endpoint, sub.endpoint))
@@ -56,23 +73,54 @@ export function upsertSubscription(
     p256dh: sub.p256dh,
     auth: sub.auth,
     userAgent,
+    deviceHash,
     createdAt: now,
     lastSeenAt: now,
   };
 
-  db.insert(pushSubscriptions)
+  await db.insert(pushSubscriptions)
     .values(values)
     .onConflictDoUpdate({
       target: pushSubscriptions.endpoint,
       // setWhere is the last line of defence: even if the ownership check above
       // were ever raced past, the update itself refuses to land on a row this
       // user does not own.
-      set: { userId, p256dh: sub.p256dh, auth: sub.auth, lastSeenAt: now },
+      set: { userId, p256dh: sub.p256dh, auth: sub.auth, deviceHash, lastSeenAt: now },
       setWhere: eq(pushSubscriptions.userId, userId),
     })
     .run();
 
-  return { ok: true };
+  if (deviceHash === null) return { ok: true, replaced: 0 };
+
+  const superseded = await db
+    .delete(pushSubscriptions)
+    .where(
+      and(
+        eq(pushSubscriptions.userId, userId),
+        eq(pushSubscriptions.deviceHash, deviceHash),
+        isNotNull(pushSubscriptions.deviceHash),
+        ne(pushSubscriptions.endpoint, sub.endpoint),
+      ),
+    )
+    .run();
+
+  return { ok: true, replaced: superseded.rowsAffected };
+}
+
+/**
+ * Whether this endpoint is registered to this person. A shared shop tablet holds
+ * ONE browser subscription, so "the browser has a subscription" says nothing
+ * about whether the person signed in right now will get anything through it.
+ */
+export async function ownsSubscription(userId: number, endpoint: string): Promise<boolean> {
+  if (!endpoint) return false;
+  return (
+    await db
+      .select({ id: pushSubscriptions.id })
+      .from(pushSubscriptions)
+      .where(and(eq(pushSubscriptions.userId, userId), eq(pushSubscriptions.endpoint, endpoint)))
+      .get() !== undefined
+  );
 }
 
 export type RemoveResult = { ok: true } | { ok: false; code: 'TASQ-E0402' | 'TASQ-E0406' };
@@ -82,14 +130,14 @@ export type RemoveResult = { ok: true } | { ok: false; code: 'TASQ-E0402' | 'TAS
  * user owns: looked up by (userId + endpoint), and a mismatch is a 404-shaped
  * refusal that does not even confirm the endpoint exists for someone else.
  */
-export function removeSubscription(userId: number, endpoint: string): RemoveResult {
+export async function removeSubscription(userId: number, endpoint: string): Promise<RemoveResult> {
   if (!endpoint) return { ok: false, code: 'TASQ-E0402' };
 
-  const result = db
+  const result = await db
     .delete(pushSubscriptions)
     .where(and(eq(pushSubscriptions.userId, userId), eq(pushSubscriptions.endpoint, endpoint)))
     .run();
 
-  if (result.changes === 0) return { ok: false, code: 'TASQ-E0406' };
+  if (result.rowsAffected === 0) return { ok: false, code: 'TASQ-E0406' };
   return { ok: true };
 }

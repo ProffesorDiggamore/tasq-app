@@ -14,11 +14,11 @@ import type { ActionResult } from '@/lib/action-result';
 
 export async function createRecurrenceAction(input: RecurrenceInput): Promise<ActionResult> {
   const me = await requireUser();
-  const result = createRecurrence(me, input);
+  const result = await createRecurrence(me, input);
   if (result.ok) {
     // If the rule is due today and its time has already passed, the first
     // instance should be on the board now rather than tomorrow morning.
-    spawnDueRecurrences();
+    await spawnDueRecurrences();
   }
   revalidatePath('/');
   revalidatePath('/settings');
@@ -31,7 +31,7 @@ export async function updateRecurrenceAction(
   input: RecurrenceInput,
 ): Promise<ActionResult> {
   const me = await requireUser();
-  const result = updateRecurrence(me, recurrenceId, input);
+  const result = await updateRecurrence(me, recurrenceId, input);
   revalidatePath('/settings');
   revalidatePath('/');
   return result;
@@ -39,7 +39,7 @@ export async function updateRecurrenceAction(
 
 export async function deleteRecurrenceAction(recurrenceId: number): Promise<ActionResult> {
   const me = await requireUser();
-  const result = deleteRecurrence(me, recurrenceId);
+  const result = await deleteRecurrence(me, recurrenceId);
   revalidatePath('/settings');
   revalidatePath('/');
   return result;
@@ -50,7 +50,7 @@ export async function setRecurrenceActiveAction(
   active: boolean,
 ): Promise<ActionResult> {
   const me = await requireUser();
-  const result = setRecurrenceActive(me, recurrenceId, active);
+  const result = await setRecurrenceActive(me, recurrenceId, active);
   revalidatePath('/settings');
   revalidatePath('/');
   return result;

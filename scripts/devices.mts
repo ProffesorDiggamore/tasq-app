@@ -17,13 +17,13 @@ import { db } from '../lib/db';
 import { devices } from '../lib/db/schema';
 import { setSetting } from '../lib/settings';
 
-initDatabase();
+await initDatabase();
 
 const [command, target] = process.argv.slice(2);
 const now = Date.now();
 
-function list(): void {
-  const rows = db.select().from(devices).all();
+async function list(): Promise<void> {
+  const rows = await db.select().from(devices).all();
   if (rows.length === 0) {
     console.log('No devices have ever reached this board.');
     return;
@@ -40,27 +40,27 @@ function list(): void {
 }
 
 if (!command || command === 'list') {
-  list();
+  await list();
 } else if (command === 'off') {
-  setSetting('whitelist.enabled', 'false');
+  await setSetting('whitelist.enabled', 'false');
   console.log('Whitelist off. Anyone who can reach the address can reach the sign-in screen.');
 } else if (command === 'approve' && target === 'all') {
-  const result = db
+  const result = await db
     .update(devices)
     .set({ status: 'approved', approvedAt: now })
     .where(eq(devices.status, 'pending'))
     .run();
-  console.log(`Approved ${result.changes} waiting device(s).`);
-  list();
+  console.log(`Approved ${result.rowsAffected} waiting device(s).`);
+  await list();
 } else if (command === 'approve' && /^\d+$/.test(target ?? '')) {
   const id = Number(target);
-  const result = db
+  const result = await db
     .update(devices)
     .set({ status: 'approved', approvedAt: now })
     .where(eq(devices.id, id))
     .run();
-  console.log(result.changes === 0 ? `No device #${id}.` : `Approved device #${id}.`);
-  list();
+  console.log(result.rowsAffected === 0 ? `No device #${id}.` : `Approved device #${id}.`);
+  await list();
 } else {
   console.log('Usage: npm run devices [list | approve <id> | approve all | off]');
   process.exit(1);

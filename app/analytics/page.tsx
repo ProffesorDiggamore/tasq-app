@@ -23,9 +23,9 @@ export default async function AnalyticsPage() {
         userName={user.name}
         isAdmin={user.isAdmin}
         title="Analytics"
-        backHref="/settings"
+        backHref="/settings?s=account"
       />
-      <AnalyticsScreen data={analyticsFor(user)} />
+      <AnalyticsScreen data={await analyticsFor(user)} />
     </>
   );
 }

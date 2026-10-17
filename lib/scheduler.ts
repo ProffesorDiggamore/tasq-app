@@ -9,14 +9,36 @@ declare global {
 
 const TICK_MS = 60_000;
 
+export interface TickReport {
+  spawned: number;
+  overdue: number;
+}
+
 /**
- * One in-process scheduler for the whole board. It ticks every minute and does
- * two things: spawn any recurrence that is due today and has not fired yet, and
- * nudge whoever owns a task that has just gone overdue.
+ * The board's periodic work: spawn any recurrence that is due today and has not
+ * fired yet, nudge whoever owns a task that has just gone overdue, and prune old
+ * history. Every part is idempotent, which is what makes running it on a timer
+ * safe however often or late the timer fires.
  *
- * Both jobs are idempotent, which is what makes a once-a-minute poll safe. The
- * first tick runs immediately on boot so a machine that was asleep through a
- * spawn time catches up without waiting.
+ * Two things drive it. On the shop Mac it is an in-process interval (below).
+ * Hosted on Netlify there is no process that stays up, so a scheduled function
+ * (netlify/functions/tick.mts) calls /api/cron/tick, which runs this.
+ */
+export async function runTick(now: number = Date.now()): Promise<TickReport> {
+  const report = await spawnDueRecurrences(now);
+  if (report.spawned > 0) {
+    console.log(`[tasq] spawned ${report.spawned} repeating tasq(s): ${report.titles.join(', ')}`);
+  }
+  const overdue = await markOverdueTasks(now);
+  // Self-gated to once an hour internally; every tick is just a timestamp check.
+  await pruneHistory(now);
+  return { spawned: report.spawned, overdue: overdue.length };
+}
+
+/**
+ * The in-process driver, for a board that runs as one long-lived server. It
+ * ticks every minute; the first tick runs immediately on boot so a machine that
+ * was asleep through a spawn time catches up without waiting.
  */
 export function startScheduler(): void {
   // Next reloads modules in development; without this every edit would leave
@@ -24,19 +46,9 @@ export function startScheduler(): void {
   if (globalThis.__tasqScheduler) clearInterval(globalThis.__tasqScheduler);
 
   const tick = () => {
-    try {
-      const report = spawnDueRecurrences();
-      if (report.spawned > 0) {
-        console.log(`[tasq] spawned ${report.spawned} repeating task(s): ${report.titles.join(', ')}`);
-      }
-      void markOverdueTasks();
-      // Self-gated to once an hour internally; every minute is just a timestamp check.
-      pruneHistory();
-    } catch (error) {
-      // A scheduler that dies on one bad tick takes the whole board's repeating
-      // work with it, so this logs and lives to try again next minute.
-      console.error('[tasq] scheduler tick failed', error);
-    }
+    // A scheduler that dies on one bad tick takes the whole board's repeating
+    // work with it, so this logs and lives to try again next minute.
+    runTick().catch((error) => console.error('[tasq] scheduler tick failed', error));
   };
 
   tick();

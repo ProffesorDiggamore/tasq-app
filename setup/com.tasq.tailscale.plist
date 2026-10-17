@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Keeps this board's public https address alive. Written by
+  setup/tailscale.sh --boot; do not edit the installed copy in
+  /Library/LaunchDaemons, edit this one and re-run --boot.
+
+  Why this exists: the standalone Tailscale for macOS connects when its
+  menu-bar app is opened, and nothing opens it for you. After a reboot the node
+  sits stopped and the funnel serves nothing — while the Mac itself still looks
+  fine, because the Mac resolves the .ts.net name over the tailnet and never
+  goes near the public address a phone has to use. That is the whole of
+  "works on my Mac, Safari can't connect on my phone".
+
+  It runs a copy of the keepalive script kept in /Library/Application Support,
+  NOT the one in this repo. A launchd job gets none of the Finder's privacy
+  grants, so anything under Documents, Desktop or Downloads is "Operation not
+  permitted" at exec time — and a board in Documents is a supported place to
+  keep it (see setup/relocate.sh). The copy is written by --boot.
+
+  RunAtLoad covers the reboot, before anyone logs in. The interval covers
+  everything else: waking from sleep, changing networks, a Tailscale update
+  restarting the extension.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tasq.tailscale</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Library/Application Support/Tasq/tailscale-keepalive.sh</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>__INTERVAL__</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Library/Logs/Tasq/tailscale.job.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Library/Logs/Tasq/tailscale.job.log</string>
+</dict>
+</plist>
